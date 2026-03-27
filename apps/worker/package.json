@@ -1,0 +1,8 @@
+{
+  "name": "@hookdrop/worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node index.js"
+  }
+}
