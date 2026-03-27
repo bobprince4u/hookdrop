@@ -4,17 +4,23 @@
   "description": "",
   "main": "index.js",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev:ingestion": "npm run dev --workspace=apps/ingestion",
     "dev:worker": "npm run dev --workspace=apps/worker",
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
+    "migrate:up": "node-pg-migrate up --database-url postgresql://postgres:postgres@localhost:5432/hookdrop --migrations-dir migrations",
+    "migrate:down": "node-pg-migrate down --database-url postgresql://postgres:postgres@localhost:5432/hookdrop --migrations-dir migrations",
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations",
+    "lint": "eslint apps/**/*.ts",
+    "format": "prettier --write apps/**/*.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
+  "author": "Bobprince",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
@@ -23,6 +29,7 @@
     "@typescript-eslint/parser": "^8.57.2",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
+    "node-pg-migrate": "^8.0.4",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
