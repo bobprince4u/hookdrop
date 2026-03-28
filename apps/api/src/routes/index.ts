@@ -37,12 +37,51 @@ router.delete('/endpoints/:id', authenticate, deleteEndpoint)
 // Destination routes
 router.get('/endpoints/:id/destinations', authenticate, listDestinations)
 router.post('/endpoints/:id/destinations', authenticate, createDestination)
-router.delete('/endpoints/:id/destinations/:dId', authenticate, deleteDestination)
+router.delete(
+  '/endpoints/:id/destinations/:dId',
+  authenticate,
+  deleteDestination
+)
 
 // Event routes
 router.get('/endpoints/:id/events', authenticate, listEvents)
 router.get('/endpoints/:id/events/:eId', authenticate, getEvent)
 router.post('/endpoints/:id/events/:eId/replay', authenticate, replayEvent)
-router.get('/endpoints/:id/events/:eId/deliveries', authenticate, getEventDeliveries)
+router.get(
+  '/endpoints/:id/events/:eId/deliveries',
+  authenticate,
+  getEventDeliveries
+)
+
+// Admin stats (protect this with your own user ID check in production)
+router.get('/admin/stats', authenticate, async (req, res) => {
+  const db = (await import('../db')).AppDataSource
+  const [
+    [{ count: total_users }],
+    [{ count: free_users }],
+    [{ count: pro_users }],
+    [{ count: total_events }],
+    [{ count: total_endpoints }],
+    [{ count: events_today }],
+  ] = await Promise.all([
+    db.query('SELECT COUNT(*) FROM users'),
+    db.query("SELECT COUNT(*) FROM users WHERE plan = 'free'"),
+    db.query("SELECT COUNT(*) FROM users WHERE plan = 'pro'"),
+    db.query('SELECT COUNT(*) FROM events'),
+    db.query('SELECT COUNT(*) FROM endpoints'),
+    db.query(
+      "SELECT COUNT(*) FROM events WHERE received_at >= NOW() - INTERVAL '1 day'"
+    ),
+  ])
+
+  res.json({
+    total_users: parseInt(total_users),
+    free_users: parseInt(free_users),
+    pro_users: parseInt(pro_users),
+    total_events: parseInt(total_events),
+    total_endpoints: parseInt(total_endpoints),
+    events_today: parseInt(events_today),
+  })
+})
 
 export default router
