@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { AppDataSource } from '../db'
 import { User } from '../entities/User'
 import dotenv from 'dotenv'
+import { sendWelcomeEmail } from '../services/email.service'
 
 dotenv.config({ path: '../../.env' })
 
@@ -44,11 +45,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
     )
 
-    const refreshToken = jwt.sign(
-      { id: savedUser.id },
-      REFRESH_SECRET,
-      { expiresIn: REFRESH_EXPIRES_IN } as jwt.SignOptions
-    )
+    const refreshToken = jwt.sign({ id: savedUser.id }, REFRESH_SECRET, {
+      expiresIn: REFRESH_EXPIRES_IN,
+    } as jwt.SignOptions)
+
+    // Send welcome email async — don't await so it doesn't slow down registration
+    sendWelcomeEmail(savedUser.email, savedUser.name).catch(console.error)
 
     res.status(201).json({
       user: {
@@ -95,11 +97,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
     )
 
-    const refreshToken = jwt.sign(
-      { id: user.id },
-      REFRESH_SECRET,
-      { expiresIn: REFRESH_EXPIRES_IN } as jwt.SignOptions
-    )
+    const refreshToken = jwt.sign({ id: user.id }, REFRESH_SECRET, {
+      expiresIn: REFRESH_EXPIRES_IN,
+    } as jwt.SignOptions)
 
     res.json({
       user: {

@@ -10,7 +10,9 @@ interface DeliveryJobData {
   endpointId: string
 }
 
-export const processDelivery = async (job: Job<DeliveryJobData>): Promise<void> => {
+export const processDelivery = async (
+  job: Job<DeliveryJobData>
+): Promise<void> => {
   const { eventId, endpointId } = job.data
 
   const eventRepo = AppDataSource.getRepository(Event)
@@ -71,19 +73,15 @@ export const processDelivery = async (job: Job<DeliveryJobData>): Promise<void> 
 
     try {
       // Forward the webhook
-      const response = await axios.post(
-        destination.url,
-        event.body,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Hookdrop-Event-Id': eventId,
-            'X-Hookdrop-Attempt': String(job.attemptsMade + 1),
-          },
-          timeout: 10000, // 10 second timeout
-          validateStatus: (status) => status < 500,
-        }
-      )
+      const response = await axios.post(destination.url, event.body, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hookdrop-Event-Id': eventId,
+          'X-Hookdrop-Attempt': String(job.attemptsMade + 1),
+        },
+        timeout: 10000, // 10 second timeout
+        validateStatus: (status) => status < 500,
+      })
 
       // Success
       await deliveryRepo.update(delivery.id, {
@@ -95,8 +93,9 @@ export const processDelivery = async (job: Job<DeliveryJobData>): Promise<void> 
         delivered_at: new Date(),
       })
 
-      console.log(`Delivered event ${eventId} to ${destination.url} — ${response.status}`)
-
+      console.log(
+        `Delivered event ${eventId} to ${destination.url} — ${response.status}`
+      )
     } catch (error: unknown) {
       const attemptCount = job.attemptsMade + 1
       const maxAttempts = 4
@@ -107,21 +106,48 @@ export const processDelivery = async (job: Job<DeliveryJobData>): Promise<void> 
           status: 'dead_letter',
           attempt_count: attemptCount,
           last_attempted_at: new Date(),
-          response_body: error instanceof Error ? error.message : 'Unknown error',
+          response_body:
+            error instanceof Error ? error.message : 'Unknown error',
         })
 
         await eventRepo.update(eventId, { status: 'failed' })
-        console.error(`Event ${eventId} dead lettered after ${attemptCount} attempts`)
+        console.error(
+          `Event ${eventId} dead lettered after ${attemptCount} attempts`
+        )
+
+        // Send failure notification email
+        try {
+          const { sendDeliveryFailureEmail } =
+            await import('../services/email.service')
+          const fullEvent = await eventRepo.findOne({
+            where: { id: eventId },
+            relations: ['endpoint', 'endpoint.user'],
+          })
+          if (fullEvent?.endpoint?.user) {
+            await sendDeliveryFailureEmail(
+              fullEvent.endpoint.user.email,
+              fullEvent.endpoint.user.name,
+              fullEvent.endpoint.name,
+              eventId,
+              destination.url
+            )
+          }
+        } catch (emailError) {
+          console.error('Failed to send failure email:', emailError)
+        }
       } else {
         // Will retry
         await deliveryRepo.update(delivery.id, {
           status: 'retrying',
           attempt_count: attemptCount,
           last_attempted_at: new Date(),
-          response_body: error instanceof Error ? error.message : 'Unknown error',
+          response_body:
+            error instanceof Error ? error.message : 'Unknown error',
         })
 
-        console.warn(`Event ${eventId} attempt ${attemptCount} failed — will retry`)
+        console.warn(
+          `Event ${eventId} attempt ${attemptCount} failed — will retry`
+        )
         throw error // Re-throw so BullMQ triggers the retry
       }
     }
