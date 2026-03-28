@@ -19,6 +19,12 @@ import {
   replayEvent,
   getEventDeliveries,
 } from '../controllers/events.controller'
+import {
+  explainPayload,
+  generateSchema,
+  generateHandler,
+  diagnoseFailure,
+} from '../controllers/ai.controller'
 
 const router = Router()
 
@@ -51,6 +57,24 @@ router.get(
   '/endpoints/:id/events/:eId/deliveries',
   authenticate,
   getEventDeliveries
+)
+
+//Ai routes
+router.get(
+  '/endpoints/:id/events/:eId/ai/explain',
+  authenticate,
+  explainPayload
+)
+router.get('/endpoints/:id/events/:eId/ai/schema', authenticate, generateSchema)
+router.post(
+  '/endpoints/:id/events/:eId/ai/handler',
+  authenticate,
+  generateHandler
+)
+router.get(
+  '/endpoints/:id/events/:eId/ai/diagnose',
+  authenticate,
+  diagnoseFailure
 )
 
 // Admin stats (protect this with your own user ID check in production)
