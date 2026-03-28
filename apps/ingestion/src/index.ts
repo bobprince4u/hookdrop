@@ -1,4 +1,5 @@
 import 'reflect-metadata'
+import * as Sentry from '@sentry/node'
 import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
@@ -7,6 +8,12 @@ import { initDB } from './db'
 import ingestRouter from './routes/ingest'
 
 dotenv.config({ path: '../../.env' })
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'development',
+  tracesSampleRate: 1.0,
+})
 
 const app = express()
 const httpServer = createServer(app)
@@ -24,6 +31,8 @@ app.get('/health', (_req, res) => {
 })
 
 app.use('/', ingestRouter)
+
+app.use(Sentry.expressErrorHandler())
 
 const start = async (): Promise<void> => {
   await initDB()
