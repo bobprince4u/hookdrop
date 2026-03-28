@@ -25,6 +25,12 @@ import {
   generateHandler,
   diagnoseFailure,
 } from '../controllers/ai.controller'
+import {
+  getPlans,
+  initializePayment,
+  handleWebhook,
+  getCurrentPlan,
+} from '../controllers/billing.controller'
 
 const router = Router()
 
@@ -48,6 +54,12 @@ router.delete(
   authenticate,
   deleteDestination
 )
+
+//Billing routes
+router.get('/billing/plans', getPlans)
+router.get('/billing/current', authenticate, getCurrentPlan)
+router.post('/billing/initialize', authenticate, initializePayment)
+router.post('/billing/webhook', handleWebhook)
 
 // Event routes
 router.get('/endpoints/:id/events', authenticate, listEvents)

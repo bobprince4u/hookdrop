@@ -30,15 +30,30 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
       <nav className="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/dashboard" className="text-lg font-semibold tracking-tight">
+          <Link
+            href="/dashboard"
+            className="text-lg font-semibold tracking-tight"
+          >
             Hookdrop
           </Link>
           <div className="flex gap-6 text-sm text-zinc-400">
-            <Link href="/dashboard" className="hover:text-white transition-colors">
+            <Link
+              href="/dashboard"
+              className="hover:text-white transition-colors"
+            >
               Endpoints
             </Link>
-            <Link href="/dashboard/settings" className="hover:text-white transition-colors">
+            <Link
+              href="/dashboard/settings"
+              className="hover:text-white transition-colors"
+            >
               Settings
+            </Link>
+            <Link
+              href="/dashboard/billing"
+              className="hover:text-white transition-colors"
+            >
+              Billing
             </Link>
           </div>
         </div>

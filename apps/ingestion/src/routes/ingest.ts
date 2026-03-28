@@ -4,24 +4,67 @@ import { Endpoint } from '../entities/Endpoint'
 import { Event } from '../entities/Event'
 import { deliveryQueue, aiQueue } from '../queue'
 import { io } from '../index'
+import crypto from 'crypto'
+import axios from 'axios'
 
 const router = Router()
+
+const PLAN_LIMITS = {
+  free: { events_per_month: 500 },
+  pro: { events_per_month: 100000 },
+  team: { events_per_month: 500000 },
+}
+
+const checkLimit = async (endpointId: string, userId: string, plan: string): Promise<boolean> => {
+  const eventRepo = AppDataSource.getRepository(Event)
+  const limits = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free
+
+  const startOfMonth = new Date()
+  startOfMonth.setDate(1)
+  startOfMonth.setHours(0, 0, 0, 0)
+
+  const count = await eventRepo
+    .createQueryBuilder('event')
+    .innerJoin('event.endpoint', 'ep')
+    .where('ep.user_id = :userId', { userId })
+    .andWhere('event.received_at >= :startOfMonth', { startOfMonth })
+    .getCount()
+
+  return count < limits.events_per_month
+}
 
 const handleIngest = async (req: Request, res: Response): Promise<void> => {
   const token = req.params.token as string
 
   try {
     const endpointRepo = AppDataSource.getRepository(Endpoint)
-    const eventRepo = AppDataSource.getRepository(Event)
 
     const endpoint = await endpointRepo.findOne({
       where: { public_token: token, is_active: true },
+      relations: ['user'],
     })
 
     if (!endpoint) {
       res.status(404).json({ error: 'Endpoint not found' })
       return
     }
+
+    // Check plan limits
+    const withinLimit = await checkLimit(
+      endpoint.id,
+      endpoint.user_id,
+      endpoint.user?.plan || 'free'
+    )
+
+    if (!withinLimit) {
+      res.status(429).json({
+        error: 'Monthly event limit reached',
+        plan: endpoint.user?.plan || 'free',
+      })
+      return
+    }
+
+    const eventRepo = AppDataSource.getRepository(Event)
 
     const event = eventRepo.create({
       endpoint_id: endpoint.id,
