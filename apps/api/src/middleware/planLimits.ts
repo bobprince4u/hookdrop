@@ -4,6 +4,7 @@ import { Event } from '../entities/Event'
 import { Endpoint } from '../entities/Endpoint'
 
 const PLAN_LIMITS = {
+  starter: { events_per_month: 10000, retention_hours: 168 },
   free: { events_per_month: 500, retention_hours: 24 },
   pro: { events_per_month: 100000, retention_hours: 720 },
   team: { events_per_month: 500000, retention_hours: 2160 },

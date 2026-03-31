@@ -11,9 +11,10 @@ dotenv.config({ path: '../../.env' })
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || ''
 
 const PLANS = {
+  starter: { name: 'Starter', amount: 7500, events: 10000, retention_hours: 168 },
   free: { name: 'Free', amount: 0, events: 500, retention_hours: 24 },
-  pro: { name: 'Pro', amount: 1900, events: 100000, retention_hours: 720 },
-  team: { name: 'Team', amount: 4900, events: 500000, retention_hours: 2160 },
+  pro: { name: 'Pro', amount: 19000, events: 100000, retention_hours: 720 },
+  team: { name: 'Team', amount: 49000, events: 500000, retention_hours: 2160 },
 }
 
 export const getPlans = async (_req: Request, res: Response): Promise<void> => {

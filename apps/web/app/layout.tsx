@@ -7,6 +7,10 @@ const geist = Geist({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Hookdrop — Webhook Relay & Inspector',
   description: 'Capture, inspect, and replay webhooks. Never lose an event again.',
+  icons: {
+    icon: '/favicon.png',
+    apple: '/favicon.png',
+  },
 }
 
 export default function RootLayout({

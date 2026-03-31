@@ -10,6 +10,7 @@ import axios from 'axios'
 const router = Router()
 
 const PLAN_LIMITS = {
+  starter: { events_per_month: 10000 },
   free: { events_per_month: 500 },
   pro: { events_per_month: 100000 },
   team: { events_per_month: 500000 },
