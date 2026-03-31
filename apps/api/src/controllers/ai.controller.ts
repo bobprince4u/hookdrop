@@ -6,11 +6,14 @@ import { Delivery } from '../entities/Delivery'
 import { AiInsight } from '../entities/AiInsight'
 import { AuthRequest } from '../middleware/auth'
 import { Endpoint } from '../entities/Endpoint'
+import { User } from '../entities/User'
 import dotenv from 'dotenv'
 
 dotenv.config({ path: '../../.env' })
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' })
+
+const AI_PLANS = ['starter', 'pro', 'team']
 
 const generate = async (prompt: string): Promise<string> => {
   const response = await ai.models.generateContent({
@@ -18,6 +21,12 @@ const generate = async (prompt: string): Promise<string> => {
     contents: prompt,
   })
   return response.text ?? ''
+}
+
+const checkAIAccess = async (userId: string): Promise<boolean> => {
+  const userRepo = AppDataSource.getRepository(User)
+  const user = await userRepo.findOne({ where: { id: userId } })
+  return AI_PLANS.includes(user?.plan || '')
 }
 
 const getOrCreateInsight = async (
@@ -43,6 +52,16 @@ export const explainPayload = async (
   res: Response
 ): Promise<void> => {
   try {
+    const hasAccess = await checkAIAccess(req.user!.id)
+    if (!hasAccess) {
+      res.status(403).json({
+        error: 'AI features are available on Starter plan and above.',
+        upgrade_required: true,
+        upgrade_url: '/dashboard/billing',
+      })
+      return
+    }
+
     const eId = req.params.eId as string
     const id = req.params.id as string
 
@@ -77,6 +96,16 @@ export const generateSchema = async (
   res: Response
 ): Promise<void> => {
   try {
+    const hasAccess = await checkAIAccess(req.user!.id)
+    if (!hasAccess) {
+      res.status(403).json({
+        error: 'AI features are available on Starter plan and above.',
+        upgrade_required: true,
+        upgrade_url: '/dashboard/billing',
+      })
+      return
+    }
+
     const eId = req.params.eId as string
     const id = req.params.id as string
 
@@ -108,6 +137,16 @@ export const generateHandler = async (
   res: Response
 ): Promise<void> => {
   try {
+    const hasAccess = await checkAIAccess(req.user!.id)
+    if (!hasAccess) {
+      res.status(403).json({
+        error: 'AI features are available on Starter plan and above.',
+        upgrade_required: true,
+        upgrade_url: '/dashboard/billing',
+      })
+      return
+    }
+
     const eId = req.params.eId as string
     const id = req.params.id as string
     const { language = 'typescript', framework = 'express' } = req.body
@@ -146,6 +185,16 @@ export const diagnoseFailure = async (
   res: Response
 ): Promise<void> => {
   try {
+    const hasAccess = await checkAIAccess(req.user!.id)
+    if (!hasAccess) {
+      res.status(403).json({
+        error: 'AI features are available on Starter plan and above.',
+        upgrade_required: true,
+        upgrade_url: '/dashboard/billing',
+      })
+      return
+    }
+
     const eId = req.params.eId as string
     const id = req.params.id as string
 
