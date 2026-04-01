@@ -22,8 +22,10 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    api.get('/api/billing/plans').then(res => setPlans(res.data.plans))
-    api.get('/api/billing/current').then(res => setCurrentPlan(res.data.current_plan))
+    api.get('/api/billing/plans').then((res) => setPlans(res.data.plans))
+    api
+      .get('/api/billing/current')
+      .then((res) => setCurrentPlan(res.data.current_plan))
   }, [])
 
   const handleUpgrade = async (plan: string) => {
@@ -46,20 +48,19 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <h1 className="text-2xl font-semibold mb-2">Billing</h1>
       <p className="text-sm text-zinc-500 mb-8">
-        You are currently on the <span className="text-white capitalize">{currentPlan}</span> plan.
+        You are currently on the{' '}
+        <span className="text-white capitalize">{currentPlan}</span> plan.
       </p>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {Object.entries(plans).map(([key, plan]) => (
           <div
             key={key}
             className={`bg-zinc-900 rounded-xl p-6 border ${
-              currentPlan === key
-                ? 'border-white'
-                : 'border-zinc-800'
+              currentPlan === key ? 'border-white' : 'border-zinc-800'
             }`}
           >
             {currentPlan === key && (
@@ -69,17 +70,23 @@ export default function BillingPage() {
             )}
             <h2 className="font-semibold text-lg mb-1">{plan.name}</h2>
             <p className="text-2xl font-bold mb-4">
-              {plan.amount === 0 ? 'Free' : `₦${plan.amount.toLocaleString()}/mo`}
+              {plan.amount === 0
+                ? 'Free'
+                : `₦${plan.amount.toLocaleString()}/mo`}
             </p>
 
             <div className="space-y-2 text-sm text-zinc-400 mb-6">
               <div className="flex justify-between">
                 <span>Events/month</span>
-                <span className="text-white">{plan.events.toLocaleString()}</span>
+                <span className="text-white">
+                  {plan.events.toLocaleString()}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Retention</span>
-                <span className="text-white">{formatRetention(plan.retention_hours)}</span>
+                <span className="text-white">
+                  {formatRetention(plan.retention_hours)}
+                </span>
               </div>
             </div>
 

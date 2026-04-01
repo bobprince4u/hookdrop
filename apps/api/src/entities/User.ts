@@ -24,6 +24,18 @@ export class User {
   @Column({ type: 'varchar', length: 50, default: 'free' })
   plan!: string
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  payment_provider!: string
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  payment_customer_id!: string
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  payment_subscription_id!: string
+
+  @Column({ type: 'timestamptz', nullable: true })
+  plan_expires_at!: Date
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date
 

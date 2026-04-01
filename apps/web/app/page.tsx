@@ -3,23 +3,45 @@ import Image from 'next/image'
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex flex-col" style={{ background: '#030712' }}>
-
+    <main
+      className="min-h-screen flex flex-col"
+      style={{ background: '#030712' }}
+    >
       {/* Navbar */}
-      <nav className="border-b border-white/5 px-6 py-4 flex items-center justify-between backdrop-blur-sm sticky top-0 z-50" style={{ background: 'rgba(3,7,18,0.8)' }}>
+      <nav
+        className="border-b border-white/5 px-6 py-4 flex items-center justify-between backdrop-blur-sm sticky top-0 z-50"
+        style={{ background: 'rgba(3,7,18,0.8)' }}
+      >
         <div className="flex items-center gap-2.5">
-          <Image src="/hookdroplogo.png" alt="Hookdrop" width={32} height={32} className="rounded-lg" />
+          <Image
+            src="/hookdroplogo.png"
+            alt="Hookdrop"
+            width={120}
+            height={60}
+            className="rounded-lg"
+          />
           <span className="text-lg font-semibold tracking-tight">Hookdrop</span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
-          <a href="#features" className="hover:text-white transition-colors">Features</a>
-          <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
-          <Link href="/auth/login" className="hover:text-white transition-colors">Log in</Link>
+          <a href="#features" className="hover:text-white transition-colors">
+            Features
+          </a>
+          <a href="#pricing" className="hover:text-white transition-colors">
+            Pricing
+          </a>
+          <Link
+            href="/auth/login"
+            className="hover:text-white transition-colors"
+          >
+            Log in
+          </Link>
         </div>
         <Link
           href="/auth/register"
           className="text-sm font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
-          style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)' }}
+          style={{
+            background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+          }}
         >
           Get started free
         </Link>
@@ -29,40 +51,48 @@ export default function Home() {
       <section className="flex-1 flex flex-col items-center justify-center text-center px-6 py-32 relative overflow-hidden">
         {/* Background glow */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full opacity-10 blur-3xl" style={{ background: 'radial-gradient(circle, #4F46E5, transparent)' }} />
+          <div
+            className="absolute top-1/4 left-1/2 -translate-x-1/2 w-150 h-150 rounded-full opacity-10 blur-3xl"
+            style={{
+              background: 'radial-gradient(circle, #4F46E5, transparent)',
+            }}
+          />
         </div>
 
         <div className="relative z-10 max-w-4xl mx-auto">
           <Image
             src="/hookdroplogo.png"
             alt="Hookdrop"
-            width={80}
-            height={80}
+            width={120}
+            height={60}
             className="mx-auto mb-8 rounded-2xl"
           />
 
-          <div className="inline-flex items-center gap-2 text-xs font-medium border border-indigo-500/30 text-indigo-400 px-4 py-1.5 rounded-full mb-8" style={{ background: 'rgba(79,70,229,0.1)' }}>
+          <div
+            className="inline-flex items-center gap-2 text-xs font-medium border border-indigo-500/30 text-indigo-400 px-4 py-1.5 rounded-full mb-8"
+            style={{ background: 'rgba(79,70,229,0.1)' }}
+          >
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
             Now in early access — join the waitlist
           </div>
 
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-tight">
-            Never lose a{' '}
-            <span className="brand-text">webhook</span>{' '}
-            again
+            Never lose a <span className="brand-text">webhook</span> again
           </h1>
 
           <p className="text-xl text-zinc-400 mb-10 max-w-2xl mx-auto leading-relaxed">
-            Hookdrop captures every webhook, inspects the payload, forwards to any
-            environment, and replays on demand — with AI that explains exactly what
-            arrived and why it failed.
+            Hookdrop captures every webhook, inspects the payload, forwards to
+            any environment, and replays on demand — with AI that explains
+            exactly what arrived and why it failed.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/auth/register"
               className="text-sm font-medium px-8 py-3.5 rounded-xl text-white transition-all hover:opacity-90 hover:scale-105"
-              style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)' }}
+              style={{
+                background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+              }}
             >
               Start for free — no credit card
             </Link>
@@ -74,15 +104,21 @@ export default function Home() {
             </Link>
           </div>
 
-          <p className="text-xs text-zinc-600 mt-4">Free plan includes 500 events/month</p>
+          <p className="text-xs text-zinc-600 mt-4">
+            Free plan includes 500 events/month
+          </p>
         </div>
       </section>
 
       {/* Features */}
       <section id="features" className="px-6 py-24 max-w-6xl mx-auto w-full">
         <div className="text-center mb-16">
-          <h2 className="text-3xl font-bold mb-4">Everything you need to debug webhooks</h2>
-          <p className="text-zinc-400 max-w-xl mx-auto">Stop losing events. Start shipping faster.</p>
+          <h2 className="text-3xl font-bold mb-4">
+            Everything you need to debug webhooks
+          </h2>
+          <p className="text-zinc-400 max-w-xl mx-auto">
+            Stop losing events. Start shipping faster.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -131,12 +167,19 @@ export default function Home() {
             >
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center text-lg mb-4"
-                style={{ background: `${feature.color}20`, border: `1px solid ${feature.color}30` }}
+                style={{
+                  background: `${feature.color}20`,
+                  border: `1px solid ${feature.color}30`,
+                }}
               >
                 {feature.icon}
               </div>
-              <h3 className="font-semibold mb-2 group-hover:text-white transition-colors">{feature.title}</h3>
-              <p className="text-sm text-zinc-500 leading-relaxed">{feature.desc}</p>
+              <h3 className="font-semibold mb-2 group-hover:text-white transition-colors">
+                {feature.title}
+              </h3>
+              <p className="text-sm text-zinc-500 leading-relaxed">
+                {feature.desc}
+              </p>
             </div>
           ))}
         </div>
@@ -145,8 +188,12 @@ export default function Home() {
       {/* Pricing */}
       <section id="pricing" className="px-6 py-24 max-w-6xl mx-auto w-full">
         <div className="text-center mb-16">
-          <h2 className="text-3xl font-bold mb-4">Simple, usage-based pricing</h2>
-          <p className="text-zinc-400">Start free. Upgrade when you need more.</p>
+          <h2 className="text-3xl font-bold mb-4">
+            Simple, usage-based pricing
+          </h2>
+          <p className="text-zinc-400">
+            Start free. Upgrade when you need more.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -204,7 +251,9 @@ export default function Home() {
               {plan.highlight && (
                 <div
                   className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-medium px-3 py-1 rounded-full text-white"
-                  style={{ background: 'linear-gradient(135deg, #3B82F6, #4F46E5)' }}
+                  style={{
+                    background: 'linear-gradient(135deg, #3B82F6, #4F46E5)',
+                  }}
                 >
                   Most popular
                 </div>
@@ -238,7 +287,14 @@ export default function Home() {
                     ? 'text-white hover:opacity-90'
                     : 'border border-white/10 text-zinc-300 hover:border-white/20 hover:text-white'
                 }`}
-                style={plan.highlight ? { background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)' } : {}}
+                style={
+                  plan.highlight
+                    ? {
+                        background:
+                          'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+                      }
+                    : {}
+                }
               >
                 {plan.name === 'Free' ? 'Get started free' : `Get ${plan.name}`}
               </Link>
@@ -253,12 +309,19 @@ export default function Home() {
           className="max-w-2xl mx-auto rounded-3xl p-12 border border-indigo-500/20"
           style={{ background: 'rgba(79,70,229,0.08)' }}
         >
-          <h2 className="text-3xl font-bold mb-4">Ready to stop losing webhooks?</h2>
-          <p className="text-zinc-400 mb-8">Join developers who use Hookdrop to debug faster and ship with confidence.</p>
+          <h2 className="text-3xl font-bold mb-4">
+            Ready to stop losing webhooks?
+          </h2>
+          <p className="text-zinc-400 mb-8">
+            Join developers who use Hookdrop to debug faster and ship with
+            confidence.
+          </p>
           <Link
             href="/auth/register"
             className="inline-block text-sm font-medium px-8 py-3.5 rounded-xl text-white transition-all hover:opacity-90"
-            style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)' }}
+            style={{
+              background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+            }}
           >
             Start for free — no credit card required
           </Link>
@@ -269,19 +332,45 @@ export default function Home() {
       <footer className="border-t border-white/5 px-6 py-10">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2.5">
-            <Image src="/hookdroplogo.png" alt="Hookdrop" width={28} height={28} className="rounded-lg" />
+            <Image
+              src="/hookdroplogo.png"
+              alt="Hookdrop"
+              width={28}
+              height={28}
+              className="rounded-lg"
+            />
             <div>
               <span className="font-semibold">Hookdrop</span>
-              <p className="text-xs text-zinc-600 mt-0.5">Webhook relay and inspector for developers.</p>
+              <p className="text-xs text-zinc-600 mt-0.5">
+                Webhook relay and inspector for developers.
+              </p>
             </div>
           </div>
           <div className="flex gap-8 text-sm text-zinc-500">
-            <a href="#features" className="hover:text-white transition-colors">Features</a>
-            <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
-            <Link href="/auth/register" className="hover:text-white transition-colors">Get started</Link>
-            <a href="https://github.com/bobprince4u/hookdrop" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">GitHub</a>
+            <a href="#features" className="hover:text-white transition-colors">
+              Features
+            </a>
+            <a href="#pricing" className="hover:text-white transition-colors">
+              Pricing
+            </a>
+            <Link
+              href="/auth/register"
+              className="hover:text-white transition-colors"
+            >
+              Get started
+            </Link>
+            <a
+              href="https://github.com/bobprince4u/hookdrop"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              GitHub
+            </a>
           </div>
-          <p className="text-xs text-zinc-700">© {new Date().getFullYear()} Hookdrop. All rights reserved.</p>
+          <p className="text-xs text-zinc-700">
+            © {new Date().getFullYear()} Hookdrop. All rights reserved.
+          </p>
         </div>
       </footer>
     </main>
