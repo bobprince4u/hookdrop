@@ -12,7 +12,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { user, logout, token } = useAuthStore()
+  const { user, logout, token, refreshPlan } = useAuthStore()
 
   useEffect(() => {
     rehydrateAuth()
@@ -24,6 +24,14 @@ export default function DashboardLayout({
       if (!stored) router.push('/auth/login')
     }
   }, [token, router])
+
+  // Refresh plan every 5 minutes silently
+  useEffect(() => {
+    if (!token) return
+    refreshPlan()
+    const interval = setInterval(refreshPlan, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [token, refreshPlan])
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#030712' }}>

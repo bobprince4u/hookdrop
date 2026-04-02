@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { api } from './api'
 
 interface User {
   id: string
@@ -10,14 +11,17 @@ interface User {
 interface AuthState {
   user: User | null
   token: string | null
+  planLoading: boolean
   setAuth: (user: User, token: string) => void
   logout: () => void
   isAuthenticated: () => boolean
+  refreshPlan: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
+  planLoading: false,
 
   setAuth: (user, token) => {
     localStorage.setItem('hookdrop_token', token)
@@ -32,12 +36,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     window.location.href = '/auth/login'
   },
 
-  isAuthenticated: () => {
-    return !!get().token
+  isAuthenticated: () => !!get().token,
+
+  refreshPlan: async () => {
+    try {
+      set({ planLoading: true })
+      const res = await api.get('/api/billing/current')
+      const currentPlan = res.data.current_plan
+
+      const user = get().user
+      if (user && user.plan !== currentPlan) {
+        const updatedUser = { ...user, plan: currentPlan }
+        localStorage.setItem('hookdrop_user', JSON.stringify(updatedUser))
+        set({ user: updatedUser })
+      }
+    } catch (err) {
+      console.error('Plan refresh failed:', err)
+    } finally {
+      set({ planLoading: false })
+    }
   },
 }))
 
-// Rehydrate from localStorage on page load
 export const rehydrateAuth = () => {
   const token = localStorage.getItem('hookdrop_token')
   const userStr = localStorage.getItem('hookdrop_user')
