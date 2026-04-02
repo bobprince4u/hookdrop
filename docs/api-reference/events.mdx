@@ -1,0 +1,39 @@
+---
+title: "Events"
+description: "Inspect and replay captured webhook events"
+---
+
+## List events
+```bash
+GET /api/endpoints/:id/events
+Authorization: Bearer TOKEN
+```
+
+Query parameters:
+- `status` — filter by `received`, `delivered`, `failed`, `dead_letter`
+- `from` — ISO date string
+- `q` — search within payload body
+- `page` — page number (default 1)
+- `limit` — results per page (default 50)
+
+## Get event
+```bash
+GET /api/endpoints/:id/events/:eventId
+Authorization: Bearer TOKEN
+```
+
+## Replay event
+```bash
+POST /api/endpoints/:id/events/:eventId/replay
+Authorization: Bearer TOKEN
+```
+
+Re-enqueues the event for delivery to all configured destinations.
+
+## Get deliveries
+```bash
+GET /api/endpoints/:id/events/:eventId/deliveries
+Authorization: Bearer TOKEN
+```
+
+Returns all delivery attempts for the event including response codes and bodies.

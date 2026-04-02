@@ -1,0 +1,30 @@
+---
+title: "Paystack"
+description: "Capture Paystack webhook events with Hookdrop"
+---
+
+## Setup
+
+1. Go to [Paystack Dashboard](https://dashboard.paystack.com) → Settings → API Keys & Webhooks
+2. Set your webhook URL to: `https://hookdrop.dev/in/{your-token}`
+3. Save changes
+
+## Common events
+
+| Event | When it fires |
+|-------|--------------|
+| `charge.success` | Payment completed |
+| `charge.failed` | Payment failed |
+| `subscription.create` | New subscription |
+| `subscription.disable` | Subscription cancelled |
+| `transfer.success` | Transfer completed |
+
+## Verifying signatures
+```typescript
+import crypto from 'crypto'
+
+const verifyPaystackWebhook = (payload: string, signature: string, secret: string) => {
+  const hash = crypto.createHmac('sha512', secret).update(payload).digest('hex')
+  return hash === signature
+}
+```

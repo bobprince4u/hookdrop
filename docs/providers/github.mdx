@@ -1,0 +1,29 @@
+---
+title: "GitHub"
+description: "Capture GitHub webhook events with Hookdrop"
+---
+
+## Setup
+
+1. Go to your GitHub repo → Settings → Webhooks
+2. Click **Add webhook**
+3. Paste your Hookdrop URL: `https://hookdrop.dev/in/{your-token}`
+4. Content type: `application/json`
+5. Select the events you want
+6. Click **Add webhook**
+
+GitHub will fire a ping event immediately — you'll see it appear in Hookdrop within seconds.
+
+## Common events
+
+| Event | When it fires |
+|-------|--------------|
+| `push` | Code pushed to a branch |
+| `pull_request` | PR opened, closed, or merged |
+| `issues` | Issue opened or closed |
+| `workflow_run` | GitHub Action completed |
+| `release` | New release published |
+
+## Handling the ping
+
+GitHub fires a `ping` event when you first register a webhook. Hookdrop handles GET requests automatically, so you don't need to do anything special.

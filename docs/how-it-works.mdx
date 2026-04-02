@@ -1,0 +1,33 @@
+---
+title: "How it works"
+description: "The architecture behind Hookdrop"
+---
+
+## The problem
+
+Webhooks are fire-and-forget. When a third-party service fires an event, it doesn't care if your server is ready. If your server is down, restarting, or just slow — the event is gone.
+
+## How Hookdrop solves it
+
+Hookdrop sits between your webhook provider and your server:
+```
+Stripe → Hookdrop → Your server
+```
+
+Here's what happens when a webhook arrives:
+
+1. **Capture** — The event hits your permanent Hookdrop URL. We save it to our database and return `200 OK` to the sender in under 50ms.
+
+2. **Store** — The full event — headers, body, source IP, timestamp — is persisted in PostgreSQL. It stays there for your plan's retention period.
+
+3. **Forward** — Our delivery worker picks up the job from Redis and forwards the event to your configured destinations with a 10 second timeout.
+
+4. **Retry** — If your server fails or is unreachable, we retry automatically with exponential backoff: 5s → 30s → 2m → 10m.
+
+5. **Audit** — Every delivery attempt is logged with the response code and body. You have a complete audit trail.
+
+6. **Replay** — At any point, replay any event against any destination with one click.
+
+## Why under 50ms matters
+
+The sender waits for your `200 OK`. If you're slow, they think delivery failed and start retrying. By separating capture from delivery, Hookdrop responds instantly and handles the heavy lifting asynchronously.

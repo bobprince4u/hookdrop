@@ -1,0 +1,42 @@
+---
+title: "Core concepts"
+description: "Endpoints, events, destinations, and deliveries"
+---
+
+## Endpoints
+
+An endpoint is a permanent capture URL. Each endpoint gets a unique token:
+```
+https://hookdrop.dev/in/{token}
+```
+
+Point any webhook provider at this URL. Every request that hits it is captured as an event.
+
+## Events
+
+An event is a single webhook request captured by Hookdrop. It contains:
+
+- **Method** — GET or POST
+- **Headers** — all request headers
+- **Body** — the raw payload
+- **Source IP** — where it came from
+- **Status** — `received`, `delivered`, `failed`, or `dead_letter`
+- **Received at** — exact timestamp
+
+## Destinations
+
+A destination is a URL you want events forwarded to. Each endpoint can have multiple destinations — for example, your local development server and your staging server simultaneously.
+
+## Deliveries
+
+A delivery is a single forwarding attempt from Hookdrop to a destination. Each event can have multiple deliveries (one per destination, plus retries).
+
+Every delivery logs:
+- Attempt count
+- Response code from your server
+- Response body
+- Timestamp
+
+## Dead letter queue
+
+After 4 failed delivery attempts, an event moves to the dead letter queue. You'll receive an email alert and can replay it once your server is back up.

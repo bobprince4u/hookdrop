@@ -65,6 +65,7 @@ export default function Home() {
             alt="Hookdrop"
             width={120}
             height={60}
+            style={{ height: 'auto' }}
             className="mx-auto mb-8 rounded-2xl"
           />
 

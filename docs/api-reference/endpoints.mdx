@@ -1,0 +1,49 @@
+---
+title: "Endpoints"
+description: "Manage your webhook capture URLs"
+---
+
+## List endpoints
+```bash
+GET /api/endpoints
+Authorization: Bearer TOKEN
+```
+
+## Create endpoint
+```bash
+POST /api/endpoints
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "name": "Stripe payments"
+}
+```
+
+Response includes your `public_token` — use it to build your capture URL:
+```
+https://hookdrop.dev/in/{public_token}
+```
+
+## Get endpoint
+```bash
+GET /api/endpoints/:id
+Authorization: Bearer TOKEN
+```
+
+## Update endpoint
+```bash
+PATCH /api/endpoints/:id
+Authorization: Bearer TOKEN
+
+{
+  "name": "New name",
+  "is_active": true
+}
+```
+
+## Delete endpoint
+```bash
+DELETE /api/endpoints/:id
+Authorization: Bearer TOKEN
+```

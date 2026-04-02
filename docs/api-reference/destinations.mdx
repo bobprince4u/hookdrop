@@ -1,0 +1,30 @@
+---
+title: "Destinations"
+description: "Manage forwarding destinations for your endpoints"
+---
+
+## List destinations
+```bash
+GET /api/endpoints/:id/destinations
+Authorization: Bearer TOKEN
+```
+
+## Add destination
+```bash
+POST /api/endpoints/:id/destinations
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "url": "https://your-server.com/webhooks",
+  "secret": "optional-signing-secret"
+}
+```
+
+Events will be forwarded to this URL automatically with exponential backoff retries on failure.
+
+## Delete destination
+```bash
+DELETE /api/endpoints/:id/destinations/:destinationId
+Authorization: Bearer TOKEN
+```

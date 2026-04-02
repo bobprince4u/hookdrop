@@ -1,0 +1,47 @@
+---
+title: "Quickstart"
+description: "Capture your first webhook in under 5 minutes"
+---
+
+## 1. Create an account
+
+Go to [hookdrop.dev/auth/register](https://hookdrop.dev/auth/register) and create a free account. No credit card required.
+
+## 2. Create an endpoint
+
+From your dashboard, click **+ New endpoint** and give it a name — for example, `Stripe payments`.
+
+You'll get a unique capture URL that looks like this:
+```
+https://hookdrop.dev/in/abc123xyz
+```
+
+This URL never changes and never goes down.
+
+## 3. Point your webhook provider at it
+
+Go to your webhook provider (Stripe, GitHub, Paystack, etc.) and set the webhook URL to your Hookdrop capture URL.
+
+**Example with Stripe:**
+
+1. Go to Stripe Dashboard → Developers → Webhooks
+2. Click **Add endpoint**
+3. Paste your Hookdrop URL
+4. Select the events you want to capture
+5. Click **Add endpoint**
+
+## 4. Watch events arrive
+
+Open your Hookdrop dashboard and click **View events** on your endpoint. The moment Stripe fires a webhook, it appears on your dashboard in real time — with the full payload, headers, and delivery status.
+
+## 5. Replay any event
+
+Click any event and hit **↺ Replay** to re-deliver it to any destination instantly. No more asking Stripe to resend.
+
+---
+
+**That's it.** You've captured your first webhook. No lost events, no mystery failures, no terminal log diving.
+
+<Card title="Next: Add a destination" icon="arrow-right" href="/core-concepts">
+  Learn how to forward events to your local server, staging, or production.
+</Card>

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Hookdrop",
+  "colors": {
+    "primary": "#4F46E5",
+    "light": "#818CF8",
+    "dark": "#3730A3"
+  },
+  "favicon": "/logo/favicon.png",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": [
+          "quickstart",
+          "how-it-works",
+          "core-concepts"
+        ]
+      },
+      {
+        "group": "API reference",
+        "pages": [
+          "api-reference/authentication",
+          "api-reference/endpoints",
+          "api-reference/events",
+          "api-reference/destinations",
+          "api-reference/ai"
+        ]
+      },
+      {
+        "group": "Provider guides",
+        "pages": [
+          "providers/stripe",
+          "providers/github",
+          "providers/shopify",
+          "providers/paystack"
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/hookdroplogo.png",
+    "dark": "/logo/hookdroplogo.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Dashboard",
+        "href": "https://hookdrop.dev/dashboard"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get started free",
+      "href": "https://hookdrop.dev/auth/register"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/bobprince4u/hookdrop"
+    }
+  }
+}

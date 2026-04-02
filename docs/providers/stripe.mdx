@@ -1,0 +1,44 @@
+---
+title: "Stripe"
+description: "Capture and debug Stripe webhooks with Hookdrop"
+---
+
+## Setup
+
+1. Go to [Stripe Dashboard](https://dashboard.stripe.com) → Developers → Webhooks
+2. Click **Add endpoint**
+3. Paste your Hookdrop capture URL: `https://hookdrop.dev/in/{your-token}`
+4. Select the events you want — start with `payment_intent.succeeded` and `payment_intent.payment_failed`
+5. Click **Add endpoint**
+
+## Common events
+
+| Event | When it fires |
+|-------|--------------|
+| `payment_intent.succeeded` | Payment completed |
+| `payment_intent.payment_failed` | Payment failed |
+| `customer.subscription.created` | New subscription |
+| `customer.subscription.deleted` | Subscription cancelled |
+| `invoice.paid` | Invoice payment succeeded |
+
+## Verifying signatures
+
+Stripe signs every webhook with a secret. Add it to your handler:
+```typescript
+import crypto from 'crypto'
+
+const verifyStripeWebhook = (payload: string, signature: string, secret: string) => {
+  const elements = signature.split(',')
+  const timestamp = elements.find(e => e.startsWith('t='))?.split('=')[1]
+  const sig = elements.find(e => e.startsWith('v1='))?.split('=')[1]
+  
+  const signedPayload = `${timestamp}.${payload}`
+  const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex')
+  
+  return expected === sig
+}
+```
+
+## Testing locally
+
+Use your Hookdrop capture URL during local development instead of ngrok. Events appear in your dashboard instantly — no terminal watching required.

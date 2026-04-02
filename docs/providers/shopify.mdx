@@ -1,0 +1,35 @@
+---
+title: "Shopify"
+description: "Capture Shopify webhook events with Hookdrop"
+---
+
+## Setup
+
+1. Go to your Shopify admin → Settings → Notifications → Webhooks
+2. Click **Create webhook**
+3. Select the event
+4. Paste your Hookdrop URL: `https://hookdrop.dev/in/{your-token}`
+5. Format: JSON
+6. Click **Save**
+
+## Common events
+
+| Event | When it fires |
+|-------|--------------|
+| `orders/create` | New order placed |
+| `orders/paid` | Order payment completed |
+| `orders/fulfilled` | Order fulfilled |
+| `products/create` | New product created |
+| `customers/create` | New customer registered |
+
+## Verifying signatures
+
+Shopify uses HMAC-SHA256:
+```typescript
+import crypto from 'crypto'
+
+const verifyShopifyWebhook = (payload: string, signature: string, secret: string) => {
+  const hash = crypto.createHmac('sha256', secret).update(payload).digest('base64')
+  return hash === signature
+}
+```

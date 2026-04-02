@@ -1,0 +1,36 @@
+---
+title: "Authentication"
+description: "How to authenticate API requests"
+---
+
+All API requests require a Bearer token in the Authorization header.
+```bash
+Authorization: Bearer YOUR_JWT_TOKEN
+```
+
+## Getting a token
+```bash
+curl -X POST https://hookdrop.dev/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "yourpassword"}'
+```
+
+Response:
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "you@example.com",
+    "plan": "free"
+  },
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ..."
+}
+```
+
+Access tokens expire after 15 minutes. Use the refresh token to get a new one:
+```bash
+curl -X POST https://hookdrop.dev/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "eyJ..."}'
+```

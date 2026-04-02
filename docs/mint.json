@@ -1,0 +1,51 @@
+{
+  "name": "Hookdrop",
+  "logo": {
+    "dark": "/logo/hookdroplogo.png",
+    "light": "/logo/hookdroplogo.png"
+  },
+  "favicon": "/logo/favicon.png",
+  "colors": {
+    "primary": "#4F46E5",
+    "light": "#818CF8",
+    "dark": "#3730A3"
+  },
+  "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://hookdrop.dev/dashboard"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get started free",
+    "url": "https://hookdrop.dev/auth/register"
+  },
+  "navigation": [
+    {
+      "group": "Getting started",
+      "pages": ["quickstart", "how-it-works", "core-concepts"]
+    },
+    {
+      "group": "API reference",
+      "pages": [
+        "api-reference/authentication",
+        "api-reference/endpoints",
+        "api-reference/events",
+        "api-reference/destinations",
+        "api-reference/ai"
+      ]
+    },
+    {
+      "group": "Provider guides",
+      "pages": [
+        "providers/stripe",
+        "providers/github",
+        "providers/shopify",
+        "providers/paystack"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/bobprince4u/hookdrop"
+  }
+}

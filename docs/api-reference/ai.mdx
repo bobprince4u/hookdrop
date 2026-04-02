@@ -1,0 +1,50 @@
+---
+title: "AI features"
+description: "AI-powered payload inspection and code generation"
+---
+
+<Note>AI features require Starter plan or above.</Note>
+
+## Explain payload
+
+Get a plain English explanation of what a webhook event means.
+```bash
+GET /api/endpoints/:id/events/:eventId/ai/explain
+Authorization: Bearer TOKEN
+```
+
+Response:
+```json
+{
+  "explanation": "A customer just completed a payment of ₦15,000 for order #1234. The payment was processed successfully via card ending in 4242."
+}
+```
+
+## Generate TypeScript interface
+```bash
+GET /api/endpoints/:id/events/:eventId/ai/schema
+Authorization: Bearer TOKEN
+```
+
+## Generate handler code
+```bash
+POST /api/endpoints/:id/events/:eventId/ai/handler
+Authorization: Bearer TOKEN
+
+{
+  "language": "typescript",
+  "framework": "express"
+}
+```
+
+Supported languages: `typescript`, `javascript`, `python`, `go`
+
+Supported frameworks: `express`, `fastify`, `nextjs`, `fastapi`, `gin`
+
+## Diagnose failure
+```bash
+GET /api/endpoints/:id/events/:eventId/ai/diagnose
+Authorization: Bearer TOKEN
+```
+
+Returns an AI-generated diagnosis of why a webhook delivery failed and how to fix it.
