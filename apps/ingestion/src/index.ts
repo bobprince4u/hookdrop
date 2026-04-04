@@ -17,7 +17,7 @@ Sentry.init({
 
 const app = express()
 const httpServer = createServer(app)
-const PORT = process.env.INGESTION_PORT || 3002
+const PORT = process.env.PORT || process.env.INGESTION_PORT || 3002
 
 export const io = new Server(httpServer, {
   cors: { origin: '*' },

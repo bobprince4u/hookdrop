@@ -23,9 +23,11 @@ const PORT = process.env.PORT || process.env.API_PORT || 3003
 const allowedOrigins = [
   'http://localhost:3004',
   'https://hookdropapi-production.up.railway.app',
-  process.env.FRONTEND_URL,
-].filter(Boolean)
+]
 
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL)
+}
 export const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
@@ -33,9 +35,11 @@ export const io = new Server(httpServer, {
   },
 })
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}))
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+)
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
