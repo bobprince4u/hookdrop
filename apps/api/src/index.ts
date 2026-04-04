@@ -18,49 +18,55 @@ Sentry.init({
 
 const app = express()
 const httpServer = createServer(app)
-const PORT = process.env.API_PORT || 3000
+const PORT = process.env.PORT || process.env.API_PORT || 3003
 
-// Socket.io setup
+const allowedOrigins = [
+  'http://localhost:3004',
+  'https://hookdropapi-production.up.railway.app',
+  process.env.FRONTEND_URL,
+].filter(Boolean)
+
 export const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
   },
 })
 
-// Middleware
-app.use(helmet())
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-// CORS headers
-app.use((_req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*')
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin)
+  }
   res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200)
+    return
+  }
   next()
 })
 
-// Health check
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'api' })
+  res.json({ status: 'ok', service: 'api', env: process.env.NODE_ENV })
 })
 
-// API routes
 app.use('/api', router)
 
-// Sentry error handler — must be after routes
 app.use(Sentry.expressErrorHandler())
 
-// WebSocket — join room by endpoint token
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`)
-
   socket.on('join', (token: string) => {
     socket.join(token)
     console.log(`Client ${socket.id} joined room: ${token}`)
   })
-
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`)
   })
