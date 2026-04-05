@@ -17,7 +17,8 @@
     "migrate:create": "node-pg-migrate create --migrations-dir migrations",
     "lint": "eslint apps/**/*.ts",
     "format": "prettier --write apps/**/*.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:ingestion": "ts-node scripts/test-ingestion.ts"
   },
   "keywords": [],
   "author": "Bobprince",
@@ -27,6 +28,7 @@
     "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
+    "axios": "^1.14.0",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "node-pg-migrate": "^8.0.4",

@@ -23,7 +23,12 @@
   "navigation": [
     {
       "group": "Getting started",
-      "pages": ["quickstart", "how-it-works", "core-concepts"]
+      "pages": [
+        "quickstart",
+        "how-it-works",
+        "core-concepts",
+        "self-hosting"
+      ]
     },
     {
       "group": "API reference",

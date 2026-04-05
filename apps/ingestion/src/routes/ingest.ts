@@ -4,6 +4,7 @@ import { Endpoint } from '../entities/Endpoint'
 import { Event } from '../entities/Event'
 import { deliveryQueue, aiQueue } from '../queue'
 import { io } from '../index'
+import { ingestRateLimiter } from '../middleware/rateLimiter'
 import crypto from 'crypto'
 import axios from 'axios'
 
@@ -16,9 +17,14 @@ const PLAN_LIMITS = {
   team: { events_per_month: 500000 },
 }
 
-const checkLimit = async (endpointId: string, userId: string, plan: string): Promise<boolean> => {
+const checkLimit = async (
+  endpointId: string,
+  userId: string,
+  plan: string
+): Promise<{ withinLimit: boolean; count: number; limit: number }> => {
   const eventRepo = AppDataSource.getRepository(Event)
-  const limits = PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free
+  const limits =
+    PLAN_LIMITS[plan as keyof typeof PLAN_LIMITS] || PLAN_LIMITS.free
 
   const startOfMonth = new Date()
   startOfMonth.setDate(1)
@@ -31,9 +37,12 @@ const checkLimit = async (endpointId: string, userId: string, plan: string): Pro
     .andWhere('event.received_at >= :startOfMonth', { startOfMonth })
     .getCount()
 
-  return count < limits.events_per_month
+  return {
+    withinLimit: count < limits.events_per_month,
+    count,
+    limit: limits.events_per_month,
+  }
 }
-
 const handleIngest = async (req: Request, res: Response): Promise<void> => {
   const token = req.params.token as string
 
@@ -51,12 +60,11 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check plan limits
-    const withinLimit = await checkLimit(
+    const { withinLimit, count, limit } = await checkLimit(
       endpoint.id,
       endpoint.user_id,
       endpoint.user?.plan || 'free'
     )
-
     if (!withinLimit) {
       res.status(429).json({
         error: 'Monthly event limit reached',
@@ -92,6 +100,34 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
 
     await aiQueue.add('explain', { eventId: savedEvent.id })
 
+    // Check if user is approaching plan limit (80%) and send warning
+    const PLAN_LIMITS: Record<string, number> = {
+      free: 500,
+      starter: 10000,
+      pro: 100000,
+      team: 500000,
+    }
+    // const limit = PLAN_LIMITS[endpoint.user?.plan || 'free'] || 500
+    const warningThreshold = Math.floor(limit * 0.8)
+
+    if (count + 1 === warningThreshold) {
+      try {
+        const { sendPlanLimitWarningEmail } =
+          await import('../services/email.service')
+
+        if (endpoint.user) {
+          await sendPlanLimitWarningEmail(
+            endpoint.user.email,
+            endpoint.user.name,
+            count + 1,
+            limit
+          )
+        }
+      } catch (emailError) {
+        console.error('Warning email failed:', emailError)
+      }
+    }
+
     res.status(200).json({ ok: true, eventId: savedEvent.id })
   } catch (error) {
     console.error('Ingestion error:', error)
@@ -99,7 +135,7 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
   }
 }
 
-router.post('/in/:token', handleIngest)
-router.get('/in/:token', handleIngest)
+router.post('/in/:token', ingestRateLimiter, handleIngest)
+router.get('/in/:token', ingestRateLimiter, handleIngest)
 
 export default router

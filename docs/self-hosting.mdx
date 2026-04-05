@@ -1,0 +1,74 @@
+---
+title: "Self-hosting"
+description: "Run Hookdrop on your own infrastructure"
+---
+
+Hookdrop is structured so the core can be self-hosted. You need four components:
+
+- Ingestion API (Node.js + Express)
+- Delivery Worker (Node.js + BullMQ)
+- PostgreSQL database
+- Redis instance
+
+## Requirements
+
+- Node.js v20+
+- PostgreSQL 16+
+- Redis 7+
+- Docker (recommended)
+
+## Clone the repo
+```bash
+git clone https://github.com/bobprince4u/hookdrop.git
+cd hookdrop
+npm install
+```
+
+## Set up environment variables
+```bash
+cp .env.example .env
+```
+
+Fill in your values:
+```env
+DATABASE_URL=postgresql://postgres:password@localhost:5432/hookdrop
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your-long-random-secret
+GEMINI_API_KEY=your-gemini-api-key
+RESEND_API_KEY=your-resend-api-key
+```
+
+## Run database migrations
+```bash
+npm run migrate:up
+```
+
+## Start all services
+```bash
+# Terminal 1 — Ingestion API
+npm run dev:ingestion
+
+# Terminal 2 — Delivery Worker  
+npm run dev:worker
+
+# Terminal 3 — Dashboard API
+npm run dev:api
+
+# Terminal 4 — Frontend
+npm run dev:web
+```
+
+## Docker Compose (coming soon)
+
+A `docker-compose.yml` for one-command self-hosting is on the roadmap.
+
+## Architecture
+Internet → Ingestion API (port 3002)
+↓
+PostgreSQL ← Delivery Worker → Your servers
+↓
+Dashboard API (port 3003)
+↓
+Frontend (port 3004)
+
+The ingestion API is intentionally separated from the dashboard API so you can scale them independently under load.
