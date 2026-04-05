@@ -377,6 +377,14 @@ export default function Home() {
               Docs
             </a>
             <a
+              href="https://bobprince-78964c2b.mintlify.app/billing/self-hosting"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              Self-host
+            </a>
+            <a
               href="https://github.com/bobprince4u/hookdrop"
               target="_blank"
               rel="noopener noreferrer"
