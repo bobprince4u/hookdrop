@@ -29,6 +29,14 @@ export default function Home() {
           <a href="#pricing" className="hover:text-white transition-colors">
             Pricing
           </a>
+          <a
+            href="https://bobprince.mintlify.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-white transition-colors"
+          >
+            Docs
+          </a>
           <Link
             href="/auth/login"
             className="hover:text-white transition-colors"
@@ -360,6 +368,14 @@ export default function Home() {
             >
               Get started
             </Link>
+            <a
+              href="https://bobprince.mintlify.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              Docs
+            </a>
             <a
               href="https://github.com/bobprince4u/hookdrop"
               target="_blank"

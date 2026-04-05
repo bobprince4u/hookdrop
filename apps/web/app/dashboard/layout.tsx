@@ -34,24 +34,64 @@ export default function DashboardLayout({
   }, [token, refreshPlan])
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#030712' }}>
-      <nav className="border-b border-white/5 px-6 py-3.5 flex items-center justify-between sticky top-0 z-50 backdrop-blur-sm" style={{ background: 'rgba(3,7,18,0.9)' }}>
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: '#030712' }}
+    >
+      <nav
+        className="border-b border-white/5 px-6 py-3.5 flex items-center justify-between sticky top-0 z-50 backdrop-blur-sm"
+        style={{ background: 'rgba(3,7,18,0.9)' }}
+      >
         <div className="flex items-center gap-8">
           <Link href="/dashboard" className="flex items-center gap-2.5">
-            <Image src="/hookdroplogo.png" alt="Hookdrop" width={28} height={28} className="rounded-lg" />
+            <Image
+              src="/hookdroplogo.png"
+              alt="Hookdrop"
+              width={28}
+              height={28}
+              className="rounded-lg"
+            />
             <span className="font-semibold tracking-tight">Hookdrop</span>
           </Link>
           <div className="flex gap-6 text-sm text-zinc-400">
-            <Link href="/dashboard" className="hover:text-white transition-colors">Endpoints</Link>
-            <Link href="/dashboard/billing" className="hover:text-white transition-colors">Billing</Link>
-            <Link href="/dashboard/settings" className="hover:text-white transition-colors">Settings</Link>
+            <Link
+              href="/dashboard"
+              className="hover:text-white transition-colors"
+            >
+              Endpoints
+            </Link>
+            <Link
+              href="/dashboard/billing"
+              className="hover:text-white transition-colors"
+            >
+              Billing
+            </Link>
+            <Link
+              href="/dashboard/settings"
+              className="hover:text-white transition-colors"
+            >
+              Settings
+            </Link>
+            <a
+              href="https://bobprince.mintlify.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors flex items-center gap-1"
+            >
+              Docs
+              <span className="text-xs text-zinc-600">↗</span>
+            </a>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-zinc-500">{user?.email}</span>
           <span
             className="text-xs px-2.5 py-1 rounded-full font-medium capitalize"
-            style={{ background: 'rgba(79,70,229,0.15)', color: '#818CF8', border: '1px solid rgba(79,70,229,0.3)' }}
+            style={{
+              background: 'rgba(79,70,229,0.15)',
+              color: '#818CF8',
+              border: '1px solid rgba(79,70,229,0.3)',
+            }}
           >
             {user?.plan}
           </span>
