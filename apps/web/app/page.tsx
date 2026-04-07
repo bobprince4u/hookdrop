@@ -20,7 +20,7 @@ export default function Home() {
             height={60}
             className="rounded-lg"
           />
-          <span className="text-lg font-semibold tracking-tight">Hookdrop</span>
+          <span className="text-lg font-semibold tracking-tight"></span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
           <a href="#features" className="hover:text-white transition-colors">
@@ -68,14 +68,14 @@ export default function Home() {
         </div>
 
         <div className="relative z-10 max-w-4xl mx-auto">
-          <Image
+          {/* <Image
             src="/hookdroplogo.png"
             alt="Hookdrop"
             width={120}
             height={60}
             style={{ height: 'auto' }}
             className="mx-auto mb-8 rounded-2xl"
-          />
+          /> */}
 
           <div
             className="inline-flex items-center gap-2 text-xs font-medium border border-indigo-500/30 text-indigo-400 px-4 py-1.5 rounded-full mb-8"
