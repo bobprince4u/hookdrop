@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
 
   const fetchEndpoints = async () => {
     try {
@@ -60,66 +61,89 @@ export default function DashboardPage() {
     }
   }
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 2000)
   }
 
-  const ingestionUrl = process.env.NEXT_PUBLIC_INGESTION_URL || 'http://localhost:3002'
+  const ingestionUrl =
+    process.env.NEXT_PUBLIC_INGESTION_URL || 'http://localhost:3002'
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6 md:mb-8">
         <div>
-          <h1 className="text-2xl font-semibold">Endpoints</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Each endpoint has a unique capture URL for your webhooks
+          <h1 className="text-xl md:text-2xl font-semibold">Endpoints</h1>
+          <p className="text-xs md:text-sm text-zinc-500 mt-1">
+            Each endpoint has a unique capture URL
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="bg-white text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-zinc-200 transition-colors"
+          className="text-xs md:text-sm font-medium px-3 md:px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
+          style={{
+            background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+          }}
         >
           + New endpoint
         </button>
       </div>
 
       {showForm && (
-        <form onSubmit={createEndpoint} className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6 flex gap-4">
+        <form
+          onSubmit={createEndpoint}
+          className="rounded-2xl border border-white/5 p-4 mb-4 flex flex-col sm:flex-row gap-3"
+          style={{ background: 'rgba(255,255,255,0.02)' }}
+        >
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Endpoint name e.g. Stripe payments"
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-zinc-500 transition-colors"
+            placeholder="e.g. Stripe payments"
+            className="flex-1 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: '#f9fafb',
+            }}
             autoFocus
           />
-          <button
-            type="submit"
-            disabled={creating}
-            className="bg-white text-black px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
-          >
-            {creating ? 'Creating...' : 'Create'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowForm(false)}
-            className="text-sm text-zinc-500 hover:text-white transition-colors px-2"
-          >
-            Cancel
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={creating}
+              className="flex-1 sm:flex-none text-sm font-medium px-5 py-2.5 rounded-xl text-white disabled:opacity-50"
+              style={{
+                background: 'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
+              }}
+            >
+              {creating ? 'Creating...' : 'Create'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="text-sm text-zinc-500 hover:text-white px-3 py-2.5 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </form>
       )}
 
       {loading ? (
-        <div className="text-zinc-500 text-sm">Loading endpoints...</div>
+        <p className="text-zinc-500 text-sm">Loading...</p>
       ) : endpoints.length === 0 ? (
-        <div className="text-center py-24 border border-dashed border-zinc-800 rounded-xl">
-          <p className="text-zinc-500 mb-4">No endpoints yet</p>
+        <div
+          className="text-center py-16 md:py-24 rounded-2xl border border-dashed"
+          style={{ borderColor: 'rgba(255,255,255,0.06)' }}
+        >
+          <p className="text-zinc-500 text-sm mb-3">No endpoints yet</p>
           <button
             onClick={() => setShowForm(true)}
-            className="text-sm text-white underline"
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
           >
-            Create your first endpoint
+            Create your first endpoint →
           </button>
         </div>
       ) : (
@@ -127,43 +151,64 @@ export default function DashboardPage() {
           {endpoints.map((endpoint) => (
             <div
               key={endpoint.id}
-              className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex items-center justify-between hover:border-zinc-700 transition-colors"
+              className="rounded-2xl border p-4 md:p-5 transition-colors"
+              style={{
+                background: 'rgba(255,255,255,0.02)',
+                borderColor: 'rgba(255,255,255,0.06)',
+              }}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-medium text-sm">{endpoint.name}</h3>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    endpoint.is_active
-                      ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                      : 'bg-zinc-800 text-zinc-500'
-                  }`}>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{
+                      background: endpoint.is_active
+                        ? 'rgba(34,197,94,0.1)'
+                        : 'rgba(255,255,255,0.05)',
+                      color: endpoint.is_active ? '#4ade80' : '#71717a',
+                      border: `1px solid ${endpoint.is_active ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                    }}
+                  >
                     {endpoint.is_active ? 'active' : 'inactive'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="text-xs text-zinc-400 bg-zinc-800 px-3 py-1.5 rounded-lg truncate max-w-lg">
-                    {ingestionUrl}/in/{endpoint.public_token}
-                  </code>
-                  <button
-                    onClick={() => copyToClipboard(`${ingestionUrl}/in/${endpoint.public_token}`)}
-                    className="text-xs text-zinc-500 hover:text-white transition-colors"
+                <div className="flex items-center gap-3 shrink-0">
+                  <Link
+                    href={`/dashboard/endpoints/${endpoint.id}`}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors whitespace-nowrap"
                   >
-                    Copy
+                    View events →
+                  </Link>
+                  <button
+                    onClick={() => deleteEndpoint(endpoint.id)}
+                    className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
-              <div className="flex items-center gap-3 ml-4">
-                <Link
-                  href={`/dashboard/endpoints/${endpoint.id}`}
-                  className="text-sm text-zinc-400 hover:text-white transition-colors"
+              <div className="flex items-center gap-2">
+                <code
+                  className="text-xs text-zinc-400 rounded-lg px-3 py-2 flex-1 truncate"
+                  style={{ background: 'rgba(255,255,255,0.04)' }}
                 >
-                  View events →
-                </Link>
+                  {ingestionUrl}/in/{endpoint.public_token}
+                </code>
                 <button
-                  onClick={() => deleteEndpoint(endpoint.id)}
-                  className="text-sm text-zinc-600 hover:text-red-400 transition-colors"
+                  onClick={() =>
+                    copyToClipboard(
+                      `${ingestionUrl}/in/${endpoint.public_token}`,
+                      endpoint.id
+                    )
+                  }
+                  className="text-xs px-3 py-2 rounded-lg shrink-0 transition-colors"
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    color: copied === endpoint.id ? '#4ade80' : '#71717a',
+                  }}
                 >
-                  Delete
+                  {copied === endpoint.id ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
