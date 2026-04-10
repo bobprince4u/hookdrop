@@ -120,6 +120,7 @@ export default function BillingPage() {
                 Paid plans are not yet active. As a thank you to early users,
                 the first 20 developers get 3 months of Pro absolutely free.
               </p>
+
               <a
                 href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: ${user?.email}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
