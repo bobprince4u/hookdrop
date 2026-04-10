@@ -39,7 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/dashboard" className="hover:text-white transition-colors">Endpoints</Link>
             <Link href="/dashboard/billing" className="hover:text-white transition-colors">Billing</Link>
             <Link href="/dashboard/settings" className="hover:text-white transition-colors">Settings</Link>
-            <a href="https://hookdrop.mintlify.app" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors flex items-center gap-1">
+            <a href="https://bobprince.mintlify.app" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors flex items-center gap-1">
               Docs <span className="text-xs text-zinc-600">↗</span>
             </a>
           </div>
@@ -76,7 +76,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="block text-sm text-zinc-300 hover:text-white py-1">Endpoints</Link>
           <Link href="/dashboard/billing" onClick={() => setMenuOpen(false)} className="block text-sm text-zinc-300 hover:text-white py-1">Billing</Link>
           <Link href="/dashboard/settings" onClick={() => setMenuOpen(false)} className="block text-sm text-zinc-300 hover:text-white py-1">Settings</Link>
-          <a href="https://hookdrop.mintlify.app" target="_blank" rel="noopener noreferrer" className="block text-sm text-zinc-300 hover:text-white py-1">Docs ↗</a>
+          <a href="https://bobprince.mintlify.app" target="_blank" rel="noopener noreferrer" className="block text-sm text-zinc-300 hover:text-white py-1">Docs ↗</a>
           <button onClick={() => { logout(); setMenuOpen(false) }} className="block text-sm text-zinc-500 hover:text-red-400 py-1 transition-colors">
             Sign out
           </button>

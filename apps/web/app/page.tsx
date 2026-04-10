@@ -30,7 +30,7 @@ export default function Home() {
             Pricing
           </a>
           <a
-            href="https://hookdrop.mintlify.app"
+            href="https://bobprince.mintlify.app"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-white transition-colors"
@@ -358,7 +358,7 @@ export default function Home() {
               Pricing
             </a>
             <a
-              href="https://hookdrop.mintlify.app"
+              href="https://bobprince.mintlify.app"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors"
@@ -366,7 +366,7 @@ export default function Home() {
               Docs
             </a>
             <a
-              href="https://hookdrop.mintlify.app/self-hosting"
+              href="https://bobprince.mintlify.app/self-hosting"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors"
