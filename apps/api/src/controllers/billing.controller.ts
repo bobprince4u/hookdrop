@@ -116,7 +116,8 @@ export const initializePayment = async (
     res.json(result)
   } catch (error) {
     console.error('Payment init error:', error)
-    res.status(500).json({ error: 'Payment initialization failed' })
+    const errMsg = error instanceof Error ? error.message : 'Payment initialization failed'
+    res.status(500).json({ error: errMsg })
   }
 }
 

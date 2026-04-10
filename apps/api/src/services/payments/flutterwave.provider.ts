@@ -9,10 +9,12 @@ import {
 export class FlutterwaveProvider implements PaymentProvider {
   name = 'flutterwave'
 
-  private getSecretKey(): string {
-    const key = process.env.FLUTTERWAVE_SECRET_KEY
-    if (!key) throw new Error('FLUTTERWAVE_SECRET_KEY not set')
-    return key
+  private getKeys() {
+    const secretKey = process.env.FLUTTERWAVE_SECRET_KEY
+    if (!secretKey || secretKey === 'placeholder') {
+      throw new Error('Flutterwave is not configured. Please add FLUTTERWAVE_SECRET_KEY to your environment variables.')
+    }
+    return { secretKey }
   }
 
   async initializePayment(
@@ -22,7 +24,7 @@ export class FlutterwaveProvider implements PaymentProvider {
     metadata: Record<string, unknown>,
     callbackUrl: string
   ): Promise<InitializePaymentResult> {
-    const secretKey = this.getSecretKey()
+    const { secretKey } = this.getKeys()
     const txRef = `hookdrop-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
     const response = await axios.post(
@@ -37,7 +39,7 @@ export class FlutterwaveProvider implements PaymentProvider {
         customizations: {
           title: 'Hookdrop',
           description: `Upgrade to ${metadata.plan} plan`,
-          logo: 'https://hookdrop.dev/hookdroplogo.png',
+          logo: 'https://hookdropi.vercel.app/hookdroplogo.png',
         },
       },
       {

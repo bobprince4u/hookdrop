@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth'
-import Link from 'next/link'
 
 interface Plan {
   name: string
@@ -48,6 +47,7 @@ export default function BillingPage() {
   const [selectedProvider, setSelectedProvider] = useState('paystack')
   const [loading, setLoading] = useState(false)
   const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null)
+  const [upgradeError, setUpgradeError] = useState('')
 
   useEffect(() => {
     api.get('/api/billing/plans').then((res) => setPlans(res.data.plans))
@@ -61,13 +61,19 @@ export default function BillingPage() {
     if (paymentMode === 'test') return
     setLoading(true)
     setUpgradingPlan(plan)
+    setUpgradeError('')
     try {
       const res = await api.post('/api/billing/initialize', {
         plan,
         provider: selectedProvider,
       })
       window.location.href = res.data.authorization_url
-    } catch (err) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } }
+      setUpgradeError(
+        error.response?.data?.error ||
+          'Payment initialization failed. Please try again.'
+      )
       console.error(err)
     } finally {
       setLoading(false)
@@ -114,7 +120,6 @@ export default function BillingPage() {
                 Paid plans are not yet active. As a thank you to early users,
                 the first 20 developers get 3 months of Pro absolutely free.
               </p>
-
               <a
                 href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: ${user?.email}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
@@ -130,7 +135,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Provider selector — only show in live mode */}
+      {/* Provider selector — live mode only */}
       {paymentMode === 'live' && (
         <div className="mb-6">
           <p className="text-sm font-medium mb-3">Choose payment method</p>
@@ -285,6 +290,18 @@ export default function BillingPage() {
         ))}
       </div>
 
+      {upgradeError && (
+        <div
+          className="mt-4 p-3 rounded-xl text-xs text-red-400 border"
+          style={{
+            background: 'rgba(239,68,68,0.1)',
+            borderColor: 'rgba(239,68,68,0.2)',
+          }}
+        >
+          {upgradeError}
+        </div>
+      )}
+
       {paymentMode === 'live' && (
         <p className="text-xs text-zinc-600 mt-4 text-center">
           Payments powered by{' '}
@@ -293,7 +310,6 @@ export default function BillingPage() {
         </p>
       )}
 
-      {/* Provider info */}
       <div
         className="mt-6 p-4 rounded-xl border border-white/5"
         style={{ background: 'rgba(255,255,255,0.01)' }}
