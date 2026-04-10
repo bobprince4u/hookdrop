@@ -1,39 +1,31 @@
-import Stripe from 'stripe'
 import {
   PaymentProvider,
   InitializePaymentResult,
   WebhookVerificationResult,
 } from './provider.interface'
-import dotenv from 'dotenv'
-
-dotenv.config({ path: '../../.env' })
 
 export class StripeProvider implements PaymentProvider {
   name = 'stripe'
-  // @ts-ignore
-  private stripe: Stripe
-  private webhookSecret: string
 
-  constructor() {
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-      // @ts-ignore
-      apiVersion: '2024-12-18.acacia',
-    })
-    this.webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || ''
+  private getStripe() {
+    const key = process.env.STRIPE_SECRET_KEY
+    if (!key) throw new Error('STRIPE_SECRET_KEY not set')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Stripe = require('stripe')
+    return new Stripe(key, { apiVersion: null })
   }
 
   async initializePayment(
     email: string,
     amount: number,
-    currency: string,
+    _currency: string,
     metadata: Record<string, unknown>,
     callbackUrl: string
   ): Promise<InitializePaymentResult> {
-    // Convert NGN amount to USD cents approximately
-    // In production use a real FX rate API
-    const usdAmount = Math.round((amount / 1600) * 100) // 1 USD ≈ 1600 NGN
+    const stripe = this.getStripe()
+    const usdAmount = Math.round((amount / 1600) * 100)
 
-    const session = await this.stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
       customer_email: email,
@@ -63,14 +55,14 @@ export class StripeProvider implements PaymentProvider {
     }
   }
 
-  verifyWebhook(payload: string, signature: string): WebhookVerificationResult {
+  verifyWebhook(
+    payload: string,
+    signature: string
+  ): WebhookVerificationResult {
     try {
-      const event = this.stripe.webhooks.constructEvent(
-        payload,
-        signature,
-        this.webhookSecret
-      )
-
+      const stripe = this.getStripe()
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || ''
+      const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret)
       return {
         valid: true,
         event: event.type,

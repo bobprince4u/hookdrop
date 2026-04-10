@@ -5,16 +5,14 @@ import {
   InitializePaymentResult,
   WebhookVerificationResult,
 } from './provider.interface'
-import dotenv from 'dotenv'
-
-dotenv.config({ path: '../../.env' })
 
 export class PaystackProvider implements PaymentProvider {
   name = 'paystack'
-  private secretKey: string
 
-  constructor() {
-    this.secretKey = process.env.PAYSTACK_SECRET_KEY || ''
+  private getSecretKey(): string {
+    const key = process.env.PAYSTACK_SECRET_KEY
+    if (!key) throw new Error('PAYSTACK_SECRET_KEY not set')
+    return key
   }
 
   async initializePayment(
@@ -24,18 +22,20 @@ export class PaystackProvider implements PaymentProvider {
     metadata: Record<string, unknown>,
     callbackUrl: string
   ): Promise<InitializePaymentResult> {
+    const secretKey = this.getSecretKey()
+
     const response = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
         email,
-        amount: amount * 100, // Paystack uses kobo
+        amount: amount * 100,
         currency,
         metadata,
         callback_url: callbackUrl,
       },
       {
         headers: {
-          Authorization: `Bearer ${this.secretKey}`,
+          Authorization: `Bearer ${secretKey}`,
           'Content-Type': 'application/json',
         },
       }
@@ -48,9 +48,13 @@ export class PaystackProvider implements PaymentProvider {
     }
   }
 
-  verifyWebhook(payload: string, signature: string): WebhookVerificationResult {
+  verifyWebhook(
+    payload: string,
+    signature: string
+  ): WebhookVerificationResult {
+    const secretKey = process.env.PAYSTACK_SECRET_KEY || ''
     const hash = crypto
-      .createHmac('sha512', this.secretKey)
+      .createHmac('sha512', secretKey)
       .update(payload)
       .digest('hex')
 

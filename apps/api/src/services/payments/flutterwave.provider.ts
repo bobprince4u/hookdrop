@@ -5,18 +5,14 @@ import {
   InitializePaymentResult,
   WebhookVerificationResult,
 } from './provider.interface'
-import dotenv from 'dotenv'
-
-dotenv.config({ path: '../../.env' })
 
 export class FlutterwaveProvider implements PaymentProvider {
   name = 'flutterwave'
-  private secretKey: string
-  private publicKey: string
 
-  constructor() {
-    this.secretKey = process.env.FLUTTERWAVE_SECRET_KEY || ''
-    this.publicKey = process.env.FLUTTERWAVE_PUBLIC_KEY || ''
+  private getSecretKey(): string {
+    const key = process.env.FLUTTERWAVE_SECRET_KEY
+    if (!key) throw new Error('FLUTTERWAVE_SECRET_KEY not set')
+    return key
   }
 
   async initializePayment(
@@ -26,6 +22,7 @@ export class FlutterwaveProvider implements PaymentProvider {
     metadata: Record<string, unknown>,
     callbackUrl: string
   ): Promise<InitializePaymentResult> {
+    const secretKey = this.getSecretKey()
     const txRef = `hookdrop-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
     const response = await axios.post(
@@ -45,7 +42,7 @@ export class FlutterwaveProvider implements PaymentProvider {
       },
       {
         headers: {
-          Authorization: `Bearer ${this.secretKey}`,
+          Authorization: `Bearer ${secretKey}`,
           'Content-Type': 'application/json',
         },
       }
@@ -58,8 +55,10 @@ export class FlutterwaveProvider implements PaymentProvider {
     }
   }
 
-  verifyWebhook(payload: string, signature: string): WebhookVerificationResult {
-    // Flutterwave uses a secret hash for webhook verification
+  verifyWebhook(
+    payload: string,
+    signature: string
+  ): WebhookVerificationResult {
     const secretHash = process.env.FLUTTERWAVE_SECRET_KEY || ''
     const hash = crypto
       .createHmac('sha256', secretHash)
