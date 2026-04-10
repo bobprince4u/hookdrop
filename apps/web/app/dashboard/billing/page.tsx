@@ -16,12 +16,38 @@ interface Plans {
   [key: string]: Plan
 }
 
+const PROVIDERS = [
+  {
+    id: 'paystack',
+    name: 'Paystack',
+    flag: '🇳🇬',
+    desc: 'Best for Nigeria',
+    currencies: 'NGN',
+  },
+  {
+    id: 'flutterwave',
+    name: 'Flutterwave',
+    flag: '🌍',
+    desc: 'Pan-Africa',
+    currencies: 'NGN, GHS, KES, ZAR',
+  },
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    flag: '🌐',
+    desc: 'International',
+    currencies: 'USD, EUR, GBP',
+  },
+]
+
 export default function BillingPage() {
   const { user } = useAuthStore()
   const [plans, setPlans] = useState<Plans>({})
   const [currentPlan, setCurrentPlan] = useState<string>('free')
   const [paymentMode, setPaymentMode] = useState<'test' | 'live'>('test')
+  const [selectedProvider, setSelectedProvider] = useState('paystack')
   const [loading, setLoading] = useState(false)
+  const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null)
 
   useEffect(() => {
     api.get('/api/billing/plans').then((res) => setPlans(res.data.plans))
@@ -34,13 +60,18 @@ export default function BillingPage() {
   const handleUpgrade = async (plan: string) => {
     if (paymentMode === 'test') return
     setLoading(true)
+    setUpgradingPlan(plan)
     try {
-      const res = await api.post('/api/billing/initialize', { plan })
+      const res = await api.post('/api/billing/initialize', {
+        plan,
+        provider: selectedProvider,
+      })
       window.location.href = res.data.authorization_url
     } catch (err) {
       console.error(err)
     } finally {
       setLoading(false)
+      setUpgradingPlan(null)
     }
   }
 
@@ -53,16 +84,16 @@ export default function BillingPage() {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="text-2xl font-semibold mb-2">Billing</h1>
+      <h1 className="text-xl md:text-2xl font-semibold mb-2">Billing</h1>
       <p className="text-sm text-zinc-500 mb-6">
-        You are currently on the{' '}
+        You are on the{' '}
         <span className="text-white capitalize">{currentPlan}</span> plan.
       </p>
 
       {/* Early access banner */}
       {paymentMode === 'test' && (
         <div
-          className="rounded-2xl p-5 mb-8 border"
+          className="rounded-2xl p-4 md:p-5 mb-6 border"
           style={{
             background: 'rgba(79,70,229,0.08)',
             borderColor: 'rgba(79,70,229,0.25)',
@@ -80,14 +111,12 @@ export default function BillingPage() {
                 Early access — first 20 developers get Pro free
               </h3>
               <p className="text-xs text-zinc-400 leading-relaxed mb-3">
-                Hookdrop is currently in early access. Paid plans are not yet
-                active — we are completing payment verification. As a thank you
-                to early users, the first 20 developers who sign up get 3 months
-                of Pro plan absolutely free.
+                Paid plans are not yet active. As a thank you to early users,
+                the first 20 developers get 3 months of Pro absolutely free.
               </p>
 
               <a
-                href="mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: "
+                href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: ${user?.email}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
                 style={{
                   background:
@@ -96,20 +125,58 @@ export default function BillingPage() {
               >
                 Claim your free Pro plan →
               </a>
-              <p className="text-xs text-zinc-600 mt-2">
-                Send us your account email and we will upgrade you within 24
-                hours.
-              </p>
             </div>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Provider selector — only show in live mode */}
+      {paymentMode === 'live' && (
+        <div className="mb-6">
+          <p className="text-sm font-medium mb-3">Choose payment method</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProvider(p.id)}
+                className="flex items-center gap-3 p-3 rounded-xl border text-left transition-all"
+                style={{
+                  background:
+                    selectedProvider === p.id
+                      ? 'rgba(79,70,229,0.1)'
+                      : 'rgba(255,255,255,0.02)',
+                  borderColor:
+                    selectedProvider === p.id
+                      ? 'rgba(79,70,229,0.4)'
+                      : 'rgba(255,255,255,0.08)',
+                }}
+              >
+                <span className="text-xl">{p.flag}</span>
+                <div>
+                  <p className="text-sm font-medium">{p.name}</p>
+                  <p className="text-xs text-zinc-500">{p.desc}</p>
+                  <p className="text-xs text-zinc-600">{p.currencies}</p>
+                </div>
+                {selectedProvider === p.id && (
+                  <span
+                    className="ml-auto text-xs"
+                    style={{ color: '#818CF8' }}
+                  >
+                    ✓
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Plans grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {Object.entries(plans).map(([key, plan]) => (
           <div
             key={key}
-            className="rounded-2xl p-6 border transition-all relative"
+            className="rounded-2xl p-5 border transition-all relative"
             style={{
               background:
                 currentPlan === key
@@ -128,13 +195,13 @@ export default function BillingPage() {
                   background: 'linear-gradient(135deg, #3B82F6, #4F46E5)',
                 }}
               >
-                Current plan
+                Current
               </div>
             )}
 
-            <h3 className="font-semibold mb-1">{plan.name}</h3>
-            <div className="flex items-baseline gap-0.5 mb-5">
-              <span className="text-2xl font-bold">
+            <h3 className="font-semibold text-sm mb-1">{plan.name}</h3>
+            <div className="flex items-baseline gap-0.5 mb-4">
+              <span className="text-xl md:text-2xl font-bold">
                 {plan.amount === 0
                   ? 'Free'
                   : `₦${plan.amount.toLocaleString()}`}
@@ -144,14 +211,14 @@ export default function BillingPage() {
               )}
             </div>
 
-            <div className="space-y-2 text-xs text-zinc-400 mb-5">
+            <div className="space-y-1.5 text-xs text-zinc-400 mb-5">
               <div className="flex items-center gap-2">
                 <span style={{ color: '#818CF8' }}>✓</span>
-                {plan.events.toLocaleString()} events/mo
+                {plan.events.toLocaleString()} events
               </div>
               <div className="flex items-center gap-2">
                 <span style={{ color: '#818CF8' }}>✓</span>
-                {formatRetention(plan.retention_hours)} retention
+                {formatRetention(plan.retention_hours)}
               </div>
               <div className="flex items-center gap-2">
                 <span style={{ color: '#818CF8' }}>✓</span>
@@ -171,7 +238,6 @@ export default function BillingPage() {
               </div>
             </div>
 
-            {/* Button logic */}
             {currentPlan === key ? (
               <div
                 className="text-center text-xs py-2 rounded-xl"
@@ -191,14 +257,14 @@ export default function BillingPage() {
               </div>
             ) : paymentMode === 'test' ? (
               <a
-                href="mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: "
-                className="block text-center text-xs font-medium py-2 rounded-xl text-white transition-all hover:opacity-90"
+                href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I want the free Pro plan. My email: ${user?.email}`}
+                className="block text-center text-xs font-medium py-2 rounded-xl text-white hover:opacity-90 transition-all"
                 style={{
                   background:
                     'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
                 }}
               >
-                Claim free early access
+                Claim free access
               </a>
             ) : (
               <button
@@ -210,7 +276,9 @@ export default function BillingPage() {
                     'linear-gradient(135deg, #3B82F6 0%, #4F46E5 100%)',
                 }}
               >
-                {loading ? 'Redirecting...' : `Upgrade to ${plan.name}`}
+                {upgradingPlan === key
+                  ? 'Redirecting...'
+                  : `Upgrade via ${PROVIDERS.find((p) => p.id === selectedProvider)?.name}`}
               </button>
             )}
           </div>
@@ -218,10 +286,27 @@ export default function BillingPage() {
       </div>
 
       {paymentMode === 'live' && (
-        <p className="text-xs text-zinc-600 mt-6 text-center">
-          Payments powered by Paystack. Cancel anytime.
+        <p className="text-xs text-zinc-600 mt-4 text-center">
+          Payments powered by{' '}
+          {PROVIDERS.find((p) => p.id === selectedProvider)?.name}. Cancel
+          anytime.
         </p>
       )}
+
+      {/* Provider info */}
+      <div
+        className="mt-6 p-4 rounded-xl border border-white/5"
+        style={{ background: 'rgba(255,255,255,0.01)' }}
+      >
+        <p className="text-xs text-zinc-500 mb-2 font-medium">
+          Accepted payment methods
+        </p>
+        <div className="flex flex-wrap gap-3 text-xs text-zinc-600">
+          <span>🇳🇬 Paystack — Cards, Bank Transfer, USSD (Nigeria)</span>
+          <span>🌍 Flutterwave — Cards, Mobile Money (Africa)</span>
+          <span>🌐 Stripe — Cards, Apple Pay, Google Pay (Global)</span>
+        </div>
+      </div>
     </div>
   )
 }
