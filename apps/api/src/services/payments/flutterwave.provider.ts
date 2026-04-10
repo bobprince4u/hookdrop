@@ -9,12 +9,14 @@ import dotenv from 'dotenv'
 
 dotenv.config({ path: '../../.env' })
 
-export class PaystackProvider implements PaymentProvider {
-  name = 'paystack'
+export class FlutterwaveProvider implements PaymentProvider {
+  name = 'flutterwave'
   private secretKey: string
+  private publicKey: string
 
   constructor() {
-    this.secretKey = process.env.PAYSTACK_SECRET_KEY || ''
+    this.secretKey = process.env.FLUTTERWAVE_SECRET_KEY || ''
+    this.publicKey = process.env.FLUTTERWAVE_PUBLIC_KEY || ''
   }
 
   async initializePayment(
@@ -24,14 +26,22 @@ export class PaystackProvider implements PaymentProvider {
     metadata: Record<string, unknown>,
     callbackUrl: string
   ): Promise<InitializePaymentResult> {
+    const txRef = `hookdrop-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
     const response = await axios.post(
-      'https://api.paystack.co/transaction/initialize',
+      'https://api.flutterwave.com/v3/payments',
       {
-        email,
-        amount: amount * 100, // Paystack uses kobo
+        tx_ref: txRef,
+        amount,
         currency,
-        metadata,
-        callback_url: callbackUrl,
+        redirect_url: callbackUrl,
+        customer: { email },
+        meta: metadata,
+        customizations: {
+          title: 'Hookdrop',
+          description: `Upgrade to ${metadata.plan} plan`,
+          logo: 'https://hookdrop.dev/hookdroplogo.png',
+        },
       },
       {
         headers: {
@@ -42,18 +52,17 @@ export class PaystackProvider implements PaymentProvider {
     )
 
     return {
-      authorization_url: response.data.data.authorization_url,
-      reference: response.data.data.reference,
+      authorization_url: response.data.data.link,
+      reference: txRef,
       provider: this.name,
     }
   }
 
-  verifyWebhook(
-    payload: string,
-    signature: string
-  ): WebhookVerificationResult {
+  verifyWebhook(payload: string, signature: string): WebhookVerificationResult {
+    // Flutterwave uses a secret hash for webhook verification
+    const secretHash = process.env.FLUTTERWAVE_SECRET_KEY || ''
     const hash = crypto
-      .createHmac('sha512', this.secretKey)
+      .createHmac('sha256', secretHash)
       .update(payload)
       .digest('hex')
 
@@ -75,6 +84,6 @@ export class PaystackProvider implements PaymentProvider {
   }
 
   getSubscriptionId(data: Record<string, unknown>): string {
-    return (data.reference as string) || ''
+    return (data.tx_ref as string) || ''
   }
 }

@@ -1,9 +1,11 @@
 import { PaymentProvider } from './provider.interface'
 import { PaystackProvider } from './paystack.provider'
+import { FlutterwaveProvider } from './flutterwave.provider'
 import { StripeProvider } from './stripe.provider'
 
 const providers: Record<string, PaymentProvider> = {
   paystack: new PaystackProvider(),
+  flutterwave: new FlutterwaveProvider(),
   stripe: new StripeProvider(),
 }
 
@@ -18,4 +20,4 @@ export const defaultProvider = (): PaymentProvider => {
   return getProvider(name)
 }
 
-export * from './provider.interface'
+export * from './index'

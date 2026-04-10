@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     apple: '/favicon.png',
   },
   verification: {
-    google: 'googlea3077b581a706883.html',
+    google: 'a3077b581a706883',
   },
 }
 

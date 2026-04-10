@@ -3,19 +3,19 @@ import { MetadataRoute } from 'next'
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
-      url: 'https://hookdrop.dev',
+      url: 'https://hookdropi.vercel.app',
       lastModified: new Date(),
       changeFrequency: 'weekly',
       priority: 1,
     },
     {
-      url: 'https://hookdrop.dev/auth/register',
+      url: 'https://hookdropi.vercel.app/auth/register',
       lastModified: new Date(),
       changeFrequency: 'monthly',
       priority: 0.8,
     },
     {
-      url: 'https://hookdrop.dev/auth/login',
+      url: 'https://hookdropi.vercel.app/auth/login',
       lastModified: new Date(),
       changeFrequency: 'monthly',
       priority: 0.5,

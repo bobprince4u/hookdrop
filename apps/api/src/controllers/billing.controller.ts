@@ -128,6 +128,7 @@ export const handleWebhook = async (
     // Detect provider from header
     const paystackSig = req.headers['x-paystack-signature'] as string
     const stripeSig = req.headers['stripe-signature'] as string
+    const flutterwaveSig = req.headers['verif-hash'] as string
 
     let providerName = 'paystack'
     let signature = paystackSig
@@ -135,6 +136,9 @@ export const handleWebhook = async (
     if (stripeSig) {
       providerName = 'stripe'
       signature = stripeSig
+    } else if (flutterwaveSig) {
+      providerName = 'flutterwave'
+      signature = flutterwaveSig
     }
 
     const provider = getProvider(providerName)
@@ -151,7 +155,9 @@ export const handleWebhook = async (
 
     if (
       result.event === 'charge.success' ||
-      result.event === 'payment_intent.succeeded'
+      result.event === 'payment_intent.succeeded' ||
+      result.event === 'checkout.session.completed' ||
+      result.event === 'invoice.paid'
     ) {
       const metadata = (result.data.metadata || result.data) as Record<
         string,
