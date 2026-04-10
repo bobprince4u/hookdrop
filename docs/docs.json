@@ -15,7 +15,8 @@
         "pages": [
           "quickstart",
           "how-it-works",
-          "core-concepts"
+          "core-concepts",
+          "self-hosting"
         ]
       },
       {
@@ -47,13 +48,13 @@
     "links": [
       {
         "label": "Dashboard",
-        "href": "https://hookdrop.dev/dashboard"
+        "href": "https://hookdropi.vercel.app/dashboard"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Get started free",
-      "href": "https://hookdrop.dev/auth/register"
+      "href": "https://hookdropi.vercel.app/auth/register"
     }
   },
   "footer": {
