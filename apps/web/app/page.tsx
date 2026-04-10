@@ -15,12 +15,12 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <Image
             src="/hookdroplogo.png"
-            alt="Hookdrop"
+            alt="Hookdropi"
             width={28}
             height={28}
             className="rounded-lg"
           />
-          <span className="font-semibold tracking-tight">Hookdrop</span>
+          <span className="font-semibold tracking-tight">Hookdropi</span>
         </div>
         <div className="hidden md:flex items-center gap-6 text-sm text-zinc-400">
           <a href="#features" className="hover:text-white transition-colors">
@@ -30,7 +30,7 @@ export default function Home() {
             Pricing
           </a>
           <a
-            href="https://bobprince.mintlify.app"
+            href="https://bobprince.mintlify.app/introduction"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-white transition-colors"
@@ -77,7 +77,7 @@ export default function Home() {
         <div className="relative z-10 max-w-4xl mx-auto w-full">
           <Image
             src="/hookdroplogo.png"
-            alt="Hookdrop"
+            alt="Hookdropi"
             width={64}
             height={64}
             className="mx-auto mb-6 rounded-2xl"
@@ -93,7 +93,7 @@ export default function Home() {
             Never lose a <span className="brand-text">webhook</span> again
           </h1>
           <p className="text-base md:text-xl text-zinc-400 mb-8 md:mb-10 max-w-2xl mx-auto leading-relaxed px-2">
-            Hookdrop captures every webhook, inspects the payload, forwards to
+            Hookdropi captures every webhook, inspects the payload, forwards to
             any environment, and replays on demand — with AI that explains
             exactly what arrived and why it failed.
           </p>
@@ -317,7 +317,7 @@ export default function Home() {
             Ready to stop losing webhooks?
           </h2>
           <p className="text-zinc-400 text-sm mb-6">
-            Join developers using Hookdrop to debug faster and ship with
+            Join developers using Hookdropi to debug faster and ship with
             confidence.
           </p>
           <Link
@@ -338,7 +338,7 @@ export default function Home() {
           <div className="flex items-center gap-2 text-center md:text-left">
             <Image
               src="/hookdroplogo.png"
-              alt="Hookdrop"
+              alt="Hookdropi"
               width={24}
               height={24}
               className="rounded-lg"
@@ -358,7 +358,7 @@ export default function Home() {
               Pricing
             </a>
             <a
-              href="https://bobprince.mintlify.app"
+              href="https://bobprince.mintlify.app/quickstart"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors"
@@ -366,7 +366,7 @@ export default function Home() {
               Docs
             </a>
             <a
-              href="https://bobprince.mintlify.app/self-hosting"
+              href="https://bobprince-78964c2b.mintlify.app/billing/self-hosting"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors"
