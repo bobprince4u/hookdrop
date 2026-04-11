@@ -21,21 +21,14 @@ const PROVIDERS = [
     name: 'Paystack',
     flag: '🇳🇬',
     desc: 'Best for Nigeria',
-    currencies: 'NGN',
+    currencies: 'NGN — Cards, Bank Transfer, USSD',
   },
   {
     id: 'flutterwave',
     name: 'Flutterwave',
     flag: '🌍',
     desc: 'Pan-Africa',
-    currencies: 'NGN, GHS, KES, ZAR',
-  },
-  {
-    id: 'stripe',
-    name: 'Stripe',
-    flag: '🌐',
-    desc: 'International',
-    currencies: 'USD, EUR, GBP',
+    currencies: 'NGN, GHS, KES, ZAR, UGX and more',
   },
 ]
 
@@ -74,7 +67,6 @@ export default function BillingPage() {
         error.response?.data?.error ||
           'Payment initialization failed. Please try again.'
       )
-      console.error(err)
     } finally {
       setLoading(false)
       setUpgradingPlan(null)
@@ -120,7 +112,6 @@ export default function BillingPage() {
                 Paid plans are not yet active. As a thank you to early users,
                 the first 20 developers get 3 months of Pro absolutely free.
               </p>
-
               <a
                 href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: ${user?.email}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
@@ -140,12 +131,12 @@ export default function BillingPage() {
       {paymentMode === 'live' && (
         <div className="mb-6">
           <p className="text-sm font-medium mb-3">Choose payment method</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
             {PROVIDERS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setSelectedProvider(p.id)}
-                className="flex items-center gap-3 p-3 rounded-xl border text-left transition-all"
+                className="flex items-center gap-3 p-4 rounded-xl border text-left transition-all"
                 style={{
                   background:
                     selectedProvider === p.id
@@ -157,15 +148,17 @@ export default function BillingPage() {
                       : 'rgba(255,255,255,0.08)',
                 }}
               >
-                <span className="text-xl">{p.flag}</span>
-                <div>
+                <span style={{ fontSize: '24px' }}>{p.flag}</span>
+                <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{p.name}</p>
                   <p className="text-xs text-zinc-500">{p.desc}</p>
-                  <p className="text-xs text-zinc-600">{p.currencies}</p>
+                  <p className="text-xs text-zinc-600 truncate">
+                    {p.currencies}
+                  </p>
                 </div>
                 {selectedProvider === p.id && (
                   <span
-                    className="ml-auto text-xs"
+                    className="text-xs shrink-0"
                     style={{ color: '#818CF8' }}
                   >
                     ✓
@@ -204,7 +197,6 @@ export default function BillingPage() {
                 Current
               </div>
             )}
-
             <h3 className="font-semibold text-sm mb-1">{plan.name}</h3>
             <div className="flex items-baseline gap-0.5 mb-4">
               <span className="text-xl md:text-2xl font-bold">
@@ -216,7 +208,6 @@ export default function BillingPage() {
                 <span className="text-zinc-500 text-xs">/mo</span>
               )}
             </div>
-
             <div className="space-y-1.5 text-xs text-zinc-400 mb-5">
               <div className="flex items-center gap-2">
                 <span style={{ color: '#818CF8' }}>✓</span>
@@ -318,10 +309,16 @@ export default function BillingPage() {
         <p className="text-xs text-zinc-500 mb-2 font-medium">
           Accepted payment methods
         </p>
-        <div className="flex flex-wrap gap-3 text-xs text-zinc-600">
-          <span>🇳🇬 Paystack — Cards, Bank Transfer, USSD (Nigeria)</span>
-          <span>🌍 Flutterwave — Cards, Mobile Money (Africa)</span>
-          <span>🌐 Stripe — Cards, Apple Pay, Google Pay (Global)</span>
+        <div className="flex flex-col gap-2 text-xs text-zinc-500">
+          <span>
+            🇳🇬 <span className="text-zinc-400 font-medium">Paystack</span> —
+            Cards, Bank Transfer, USSD, Mobile Money (Nigeria)
+          </span>
+          <span>
+            🌍 <span className="text-zinc-400 font-medium">Flutterwave</span> —
+            Cards, Mobile Money, Bank Transfer (Nigeria, Ghana, Kenya, Rwanda,
+            Uganda, South Africa)
+          </span>
         </div>
       </div>
     </div>
