@@ -7,6 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/dashboard/', '/admin/'],
     },
-    sitemap: 'https://hookdrop.dev/sitemap.xml',
+    sitemap: 'https://hookdropi.qzz.io/sitemap.xml',
   }
 }

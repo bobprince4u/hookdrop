@@ -4,9 +4,9 @@
 
 Hookdrop is an AI-native webhook relay and inspector for developers. It captures every webhook permanently, forwards to any environment with auto-retry, and uses AI to explain payloads in plain English and write your handler code.
 
-**Live at [hookdropi.vercel.app](https://hookdropi.vercel.app)**
+**Live at [hookdropi.qzz.io](https://hookdropi.vercel.app)**
 
-![Hookdrop](apps/web/public/hookdroplogo.png)
+![Hookdropi](apps/web/public/hookdroplogo.png)
 
 ---
 
@@ -117,7 +117,7 @@ Frontend (port 3004)
 
 ```bash
 git clone https://github.com/bobprince4u/hookdrop.git
-cd hookdrop
+cd hookdropi
 npm install
 ```
 
@@ -131,7 +131,7 @@ Fill in your values. Required variables:
 
 ```env
 # Database
-DATABASE_URL=postgresql://postgres:password@localhost:5432/hookdrop
+DATABASE_URL=postgresql://postgres:password@localhost:5432/hookdropi
 
 # Redis
 REDIS_URL=redis://localhost:6379
@@ -202,7 +202,7 @@ TEST_TOKEN=your-endpoint-token npm run test:ingestion
 ## Project structure
 
 ```
-hookdrop/
+hookdropi/
 ├── apps/
 │   ├── ingestion/          — webhook capture service (port 3002)
 │   │   └── src/
@@ -296,9 +296,9 @@ Each service deploys independently on Railway. Set the following environment var
 
 ```bash
 # Deploy each service
-cd apps/api && railway up --service hookdrop-api
-cd apps/ingestion && railway up --service hookdrop-ingestion
-cd apps/worker && railway up --service hookdrop-worker
+cd apps/api && railway up --service hookdropi-api
+cd apps/ingestion && railway up --service hookdropi-ingestion
+cd apps/worker && railway up --service hookdropi-worker
 ```
 
 ### Vercel (frontend)
