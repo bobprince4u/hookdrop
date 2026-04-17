@@ -20,18 +20,22 @@ const app = express()
 const httpServer = createServer(app)
 const PORT = process.env.PORT || process.env.API_PORT || 3003
 
+// Build allowed origins from env — supports multiple comma-separated URLs
 const allowedOrigins = [
   'http://localhost:3004',
-  'https://hookdropapi-production.up.railway.app',
-]
+  'https://hookdropi.vercel.app',
+  'https://hookdropi.qzz.io',
+  process.env.FRONTEND_URL,
+  ...(process.env.EXTRA_ORIGINS ? process.env.EXTRA_ORIGINS.split(',') : []),
+].filter(Boolean) as string[]
 
-if (process.env.FRONTEND_URL) {
-  allowedOrigins.push(process.env.FRONTEND_URL)
-}
+console.log('Allowed origins:', allowedOrigins)
+
 export const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 })
 
@@ -40,16 +44,22 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 )
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// CORS middleware
 app.use((req, res, next) => {
-  const origin = req.headers.origin
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin)
+  const origin = req.headers.origin as string
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*')
   }
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
+  res.header(
+    'Access-Control-Allow-Methods',
+    'GET,POST,PATCH,PUT,DELETE,OPTIONS'
+  )
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.header('Access-Control-Allow-Credentials', 'true')
   if (req.method === 'OPTIONS') {
     res.sendStatus(200)
     return
