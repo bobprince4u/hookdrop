@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 import { AppDataSource } from '../db'
 import { User } from '../entities/User'
 import dotenv from 'dotenv'
-import { sendWelcomeEmail } from '../services/email.service'
+import { sendWelcomeEmail, sendWelcomeSequence } from '../services/email.service'
 
 dotenv.config({ path: '../../.env' })
 
@@ -51,6 +51,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     // Send welcome email async — don't await so it doesn't slow down registration
     sendWelcomeEmail(savedUser.email, savedUser.name).catch(console.error)
+    sendWelcomeSequence(savedUser.email, savedUser.name).catch(console.error)
 
     res.status(201).json({
       user: {

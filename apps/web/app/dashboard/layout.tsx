@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useAuthStore, rehydrateAuth } from '@/lib/auth'
+import FeedbackWidget from '@/components/FeedbackWidget'
 
 export default function DashboardLayout({
   children,
@@ -46,13 +47,13 @@ export default function DashboardLayout({
           <Link href="/dashboard" className="flex items-center gap-2">
             <Image
               src="/hookdroplogo.png"
-              alt="Hookdropi"
+              alt="Hookdrop"
               width={26}
               height={26}
               className="rounded-lg"
             />
             <span className="font-semibold text-sm tracking-tight">
-              Hookdropi
+              Hookdrop
             </span>
           </Link>
           <div className="hidden md:flex gap-5 text-sm text-zinc-400">
@@ -75,7 +76,7 @@ export default function DashboardLayout({
               Settings
             </Link>
             <a
-              href="https://bobprince.mintlify.app/introduction"
+              href="https://bobprince.mintlify.app"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors flex items-center gap-1"
@@ -159,7 +160,7 @@ export default function DashboardLayout({
             Settings
           </Link>
           <a
-            href="https://bobprince.mintlify.app/introduction"
+            href="https://bobprince.mintlify.app"
             target="_blank"
             rel="noopener noreferrer"
             className="block text-sm text-zinc-300 hover:text-white py-1"
@@ -185,9 +186,11 @@ export default function DashboardLayout({
       <footer className="border-t border-white/5 px-4 md:px-6 py-4">
         <div className="max-w-6xl mx-auto text-xs text-zinc-700 flex flex-col md:flex-row justify-between gap-1 text-center md:text-left">
           <span>Hookdropi — Webhook Relay & Inspector</span>
-          <span>© {new Date().getFullYear()} Hookdropi</span>
+          <span>© {new Date().getFullYear()} Hookdrop</span>
         </div>
       </footer>
+
+      <FeedbackWidget />
     </div>
   )
 }

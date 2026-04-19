@@ -3,6 +3,8 @@ import * as Sentry from '@sentry/node'
 import dotenv from 'dotenv'
 import { initDB } from './db'
 import { startDeliveryWorker } from './workers/delivery.worker'
+import { startEmailWorker } from './workers/email.worker'
+import { startSubscriptionScheduler } from './schedulers/subscription.scheduler'
 
 dotenv.config({ path: '../../.env' })
 
@@ -15,6 +17,8 @@ Sentry.init({
 const start = async (): Promise<void> => {
   await initDB()
   startDeliveryWorker()
+  startEmailWorker()
+  startSubscriptionScheduler()
   console.log('Hookdrop worker service running')
 }
 

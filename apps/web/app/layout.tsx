@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Geist } from 'next/font/google'
+import Script from 'next/script'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'] })
@@ -21,12 +22,12 @@ export const metadata: Metadata = {
     'developer tools',
     'AI webhook',
   ],
-  authors: [{ name: 'Hookdropi' }],
-  creator: 'Hookdropi',
+  authors: [{ name: 'Bobprince' }],
+  creator: 'Bobprince',
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://hookdrop.dev',
+    url: 'https://hookdrop.qzz.io',
     title: 'Hookdropi — AI-Native Webhook Relay & Inspector',
     description: 'Never lose a webhook. Never debug one in the dark.',
     siteName: 'Hookdropi',
@@ -76,7 +77,13 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={geist.className}>{children}</body>
+      <body className={geist.className}>
+        {children}
+        <Script
+          src="https://checkout.flutterwave.com/v3.js"
+          strategy="lazyOnload"
+        />
+      </body>
     </html>
   )
 }

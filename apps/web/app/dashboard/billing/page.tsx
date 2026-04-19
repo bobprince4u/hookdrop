@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth'
 
@@ -15,32 +15,51 @@ interface Plans {
   [key: string]: Plan
 }
 
-const PROVIDERS = [
-  {
-    id: 'paystack',
-    name: 'Paystack',
-    flag: '🇳🇬',
-    desc: 'Best for Nigeria',
-    currencies: 'NGN — Cards, Bank Transfer, USSD',
-  },
-  {
-    id: 'flutterwave',
-    name: 'Flutterwave',
-    flag: '🌍',
-    desc: 'Pan-Africa',
-    currencies: 'NGN, GHS, KES, ZAR, UGX and more',
-  },
+interface Rates {
+  [currency: string]: number
+}
+
+const CURRENCIES = [
+  { code: 'NGN', symbol: '₦', name: 'Nigerian Naira', flag: '🇳🇬' },
+  { code: 'USD', symbol: '$', name: 'US Dollar', flag: '🇺🇸' },
+  { code: 'EUR', symbol: '€', name: 'Euro', flag: '🇪🇺' },
+  { code: 'GBP', symbol: '£', name: 'British Pound', flag: '🇬🇧' },
 ]
+
+declare global {
+  interface Window {
+    FlutterwaveCheckout: (config: Record<string, unknown>) => void
+  }
+}
 
 export default function BillingPage() {
   const { user } = useAuthStore()
   const [plans, setPlans] = useState<Plans>({})
   const [currentPlan, setCurrentPlan] = useState<string>('free')
   const [paymentMode, setPaymentMode] = useState<'test' | 'live'>('test')
-  const [selectedProvider, setSelectedProvider] = useState('paystack')
+  const [selectedCurrency, setSelectedCurrency] = useState('NGN')
+  const [rates, setRates] = useState<Rates>({
+    NGN: 1,
+    USD: 1600,
+    EUR: 1750,
+    GBP: 2050,
+  })
+  const [ratesLoading, setRatesLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [upgradingPlan, setUpgradingPlan] = useState<string | null>(null)
   const [upgradeError, setUpgradeError] = useState('')
+
+  const fetchRates = useCallback(async () => {
+    setRatesLoading(true)
+    try {
+      const res = await api.get('/api/billing/rates')
+      setRates(res.data.rates)
+    } catch {
+      // keep fallback rates
+    } finally {
+      setRatesLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     api.get('/api/billing/plans').then((res) => setPlans(res.data.plans))
@@ -48,26 +67,80 @@ export default function BillingPage() {
       .get('/api/billing/current')
       .then((res) => setCurrentPlan(res.data.current_plan))
     api.get('/api/billing/mode').then((res) => setPaymentMode(res.data.mode))
-  }, [])
+    fetchRates()
+  }, [fetchRates])
 
-  const handleUpgrade = async (plan: string) => {
+  const convertPrice = (ngnAmount: number): number => {
+    if (selectedCurrency === 'NGN') return ngnAmount
+    const rate = rates[selectedCurrency] || 1
+    return Math.round((ngnAmount / rate) * 100) / 100
+  }
+
+  const formatPrice = (ngnAmount: number): string => {
+    const converted = convertPrice(ngnAmount)
+    const currency = CURRENCIES.find((c) => c.code === selectedCurrency)
+    if (selectedCurrency === 'NGN') return `₦${ngnAmount.toLocaleString()}`
+    return `${currency?.symbol}${converted.toFixed(2)}`
+  }
+
+  const handleFlutterwaveCheckout = async (planKey: string) => {
     if (paymentMode === 'test') return
+    if (!user) return
+
     setLoading(true)
-    setUpgradingPlan(plan)
+    setUpgradingPlan(planKey)
     setUpgradeError('')
+
     try {
-      const res = await api.post('/api/billing/initialize', {
-        plan,
-        provider: selectedProvider,
+      const plan = plans[planKey]
+      const amount = convertPrice(plan.amount)
+      const txRef = `hookdrop-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+      if (typeof window.FlutterwaveCheckout === 'undefined') {
+        const res = await api.post('/api/billing/initialize', {
+          plan: planKey,
+          provider: 'flutterwave',
+          currency: selectedCurrency,
+        })
+        window.location.href = res.data.authorization_url
+        return
+      }
+
+      window.FlutterwaveCheckout({
+        public_key: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY,
+        tx_ref: txRef,
+        amount,
+        currency: selectedCurrency,
+        customer: { email: user.email, name: user.name },
+        meta: { user_id: user.id, plan: planKey, provider: 'flutterwave' },
+        customizations: {
+          title: 'Hookdrop',
+          description: `Upgrade to ${plan.name} plan`,
+          logo: 'https://hookdropi.vercel.app/hookdroplogo.png',
+        },
+        callback: async (response: {
+          status: string
+          transaction_id: string
+        }) => {
+          if (response.status === 'successful') {
+            await api.post('/api/billing/verify-flutterwave', {
+              transaction_id: response.transaction_id,
+              plan: planKey,
+            })
+            window.location.href =
+              '/dashboard/billing/success?reference=' + txRef
+          }
+        },
+        onclose: () => {
+          setLoading(false)
+          setUpgradingPlan(null)
+        },
       })
-      window.location.href = res.data.authorization_url
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } }
       setUpgradeError(
-        error.response?.data?.error ||
-          'Payment initialization failed. Please try again.'
+        error.response?.data?.error || 'Payment initialization failed.'
       )
-    } finally {
       setLoading(false)
       setUpgradingPlan(null)
     }
@@ -109,9 +182,10 @@ export default function BillingPage() {
                 Early access — first 20 developers get Pro free
               </h3>
               <p className="text-xs text-zinc-400 leading-relaxed mb-3">
-                Paid plans are not yet active. As a thank you to early users,
-                the first 20 developers get 3 months of Pro absolutely free.
+                Paid plans are not yet active. The first 20 developers get 3
+                months of Pro absolutely free.
               </p>
+
               <a
                 href={`mailto:hello@hookdrop.dev?subject=Early Access Pro Plan&body=Hi, I would like to claim my free Pro plan. My account email is: ${user?.email}`}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
@@ -127,48 +201,54 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Provider selector — live mode only */}
-      {paymentMode === 'live' && (
-        <div className="mb-6">
-          <p className="text-sm font-medium mb-3">Choose payment method</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-            {PROVIDERS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedProvider(p.id)}
-                className="flex items-center gap-3 p-4 rounded-xl border text-left transition-all"
-                style={{
-                  background:
-                    selectedProvider === p.id
-                      ? 'rgba(79,70,229,0.1)'
-                      : 'rgba(255,255,255,0.02)',
-                  borderColor:
-                    selectedProvider === p.id
-                      ? 'rgba(79,70,229,0.4)'
-                      : 'rgba(255,255,255,0.08)',
-                }}
-              >
-                <span style={{ fontSize: '24px' }}>{p.flag}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{p.name}</p>
-                  <p className="text-xs text-zinc-500">{p.desc}</p>
-                  <p className="text-xs text-zinc-600 truncate">
-                    {p.currencies}
-                  </p>
-                </div>
-                {selectedProvider === p.id && (
-                  <span
-                    className="text-xs shrink-0"
-                    style={{ color: '#818CF8' }}
-                  >
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      {/* Currency selector — always visible */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-medium">Select currency</p>
+          {ratesLoading ? (
+            <span className="text-xs text-zinc-500 animate-pulse">
+              Fetching live rates...
+            </span>
+          ) : (
+            <button
+              onClick={fetchRates}
+              className="text-xs text-zinc-500 hover:text-white transition-colors"
+            >
+              Refresh rates ↻
+            </button>
+          )}
         </div>
-      )}
+        <div className="flex flex-wrap gap-2">
+          {CURRENCIES.map((c) => (
+            <button
+              key={c.code}
+              onClick={() => setSelectedCurrency(c.code)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-all"
+              style={{
+                background:
+                  selectedCurrency === c.code
+                    ? 'rgba(79,70,229,0.15)'
+                    : 'rgba(255,255,255,0.02)',
+                borderColor:
+                  selectedCurrency === c.code
+                    ? 'rgba(79,70,229,0.4)'
+                    : 'rgba(255,255,255,0.08)',
+                color: selectedCurrency === c.code ? '#818CF8' : '#a1a1aa',
+              }}
+            >
+              <span>{c.flag}</span>
+              <span className="font-medium text-xs">{c.code}</span>
+              <span className="text-xs opacity-60">{c.symbol}</span>
+            </button>
+          ))}
+        </div>
+        {selectedCurrency !== 'NGN' && !ratesLoading && (
+          <p className="text-xs text-zinc-600 mt-2">
+            Live rate: 1 {selectedCurrency} = ₦
+            {rates[selectedCurrency]?.toLocaleString()} NGN
+          </p>
+        )}
+      </div>
 
       {/* Plans grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -197,17 +277,27 @@ export default function BillingPage() {
                 Current
               </div>
             )}
+
             <h3 className="font-semibold text-sm mb-1">{plan.name}</h3>
-            <div className="flex items-baseline gap-0.5 mb-4">
-              <span className="text-xl md:text-2xl font-bold">
-                {plan.amount === 0
-                  ? 'Free'
-                  : `₦${plan.amount.toLocaleString()}`}
+            <div className="flex items-baseline gap-0.5 mb-1">
+              <span className="text-xl font-bold">
+                {plan.amount === 0 ? 'Free' : formatPrice(plan.amount)}
               </span>
               {plan.amount > 0 && (
                 <span className="text-zinc-500 text-xs">/mo</span>
               )}
             </div>
+            {plan.amount > 0 && selectedCurrency !== 'NGN' && (
+              <p className="text-xs text-zinc-600 mb-2">
+                ₦{plan.amount.toLocaleString()} NGN
+              </p>
+            )}
+            <div
+              className={
+                plan.amount > 0 && selectedCurrency !== 'NGN' ? 'mb-3' : 'mb-4'
+              }
+            />
+
             <div className="space-y-1.5 text-xs text-zinc-400 mb-5">
               <div className="flex items-center gap-2">
                 <span style={{ color: '#818CF8' }}>✓</span>
@@ -265,7 +355,7 @@ export default function BillingPage() {
               </a>
             ) : (
               <button
-                onClick={() => handleUpgrade(key)}
+                onClick={() => handleFlutterwaveCheckout(key)}
                 disabled={loading}
                 className="w-full text-xs font-medium py-2 rounded-xl text-white transition-all hover:opacity-90 disabled:opacity-50"
                 style={{
@@ -274,8 +364,8 @@ export default function BillingPage() {
                 }}
               >
                 {upgradingPlan === key
-                  ? 'Redirecting...'
-                  : `Upgrade via ${PROVIDERS.find((p) => p.id === selectedProvider)?.name}`}
+                  ? 'Loading...'
+                  : `Pay ${formatPrice(plan.amount)}`}
               </button>
             )}
           </div>
@@ -296,9 +386,8 @@ export default function BillingPage() {
 
       {paymentMode === 'live' && (
         <p className="text-xs text-zinc-600 mt-4 text-center">
-          Payments powered by{' '}
-          {PROVIDERS.find((p) => p.id === selectedProvider)?.name}. Cancel
-          anytime.
+          Powered by Flutterwave. Accepts cards, bank transfer, mobile money.
+          Cancel anytime.
         </p>
       )}
 
@@ -312,12 +401,11 @@ export default function BillingPage() {
         <div className="flex flex-col gap-2 text-xs text-zinc-500">
           <span>
             🇳🇬 <span className="text-zinc-400 font-medium">Paystack</span> —
-            Cards, Bank Transfer, USSD, Mobile Money (Nigeria)
+            Cards, Bank Transfer, USSD (Nigeria)
           </span>
           <span>
             🌍 <span className="text-zinc-400 font-medium">Flutterwave</span> —
-            Cards, Mobile Money, Bank Transfer (Nigeria, Ghana, Kenya, Rwanda,
-            Uganda, South Africa)
+            Cards, Mobile Money, Bank Transfer (Africa + International)
           </span>
         </div>
       </div>

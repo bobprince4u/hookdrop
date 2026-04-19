@@ -4,7 +4,7 @@ import { Event } from '../entities/Event'
 import { Endpoint } from '../entities/Endpoint'
 import { Delivery } from '../entities/Delivery'
 import { AuthRequest } from '../middleware/auth'
-import { deliveryQueue } from '../queue'
+import { deliveryQueue } from '../queue/index'
 
 export const listEvents = async (
   req: AuthRequest,

@@ -171,3 +171,56 @@ router.post(
 router.get('/test-sentry', (_req, _res) => {
   throw new Error('Sentry test error from Hookdrop API')
 })
+
+// Exchange rates via Flutterwave
+router.get('/billing/rates', async (_req, res) => {
+  try {
+    const axios = (await import('axios')).default
+    const currencies = ['USD', 'EUR', 'GBP']
+    const rates: Record<string, number> = { NGN: 1 }
+
+    await Promise.all(
+      currencies.map(async (currency) => {
+        try {
+          const response = await axios.get(
+            `https://api.flutterwave.com/v3/fx-rates?from=${currency}&to=NGN&amount=1`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+              },
+            }
+          )
+          rates[currency] = response.data.data.rate
+        } catch {
+          // Fallback rates if API fails
+          const fallback: Record<string, number> = {
+            USD: 1600,
+            EUR: 1750,
+            GBP: 2050,
+          }
+          rates[currency] = fallback[currency]
+        }
+      })
+    )
+
+    res.json({ rates, base: 'NGN' })
+  } catch (error) {
+    console.error('Exchange rate error:', error)
+    res.json({
+      rates: { NGN: 1, USD: 1600, EUR: 1750, GBP: 2050 },
+      base: 'NGN',
+    })
+  }
+})
+
+router.post('/feedback', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { type, message } = req.body
+    const { sendFeedbackEmail } = await import('../services/email.service')
+    await sendFeedbackEmail(req.user!.email, req.user!.id, type, message)
+    res.json({ ok: true })
+  } catch (error) {
+    console.error('Feedback error:', error)
+    res.status(500).json({ error: 'Failed to send feedback' })
+  }
+})
