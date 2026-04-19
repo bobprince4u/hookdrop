@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import Link from 'next/link'
+import { EndpointSkeleton } from '@/components/LoadingSkeleton'
 
 interface Endpoint {
   id: string
@@ -132,7 +133,7 @@ export default function DashboardPage() {
       )}
 
       {loading ? (
-        <p className="text-zinc-500 text-sm">Loading...</p>
+        <EndpointSkeleton />
       ) : endpoints.length === 0 ? (
         <div
           className="text-center py-16 md:py-24 rounded-2xl border border-dashed"
