@@ -18,7 +18,11 @@ export const startEmailWorker = () => {
         console.log(`Day 3 upgrade email sent to ${email}`)
       }
     },
-    { connection: redis }
+    {
+      connection: redis,
+      stalledInterval: 60000,    // check stalled jobs every 60s instead of default 5s
+      maxStalledCount: 2,
+    }
   )
 
   worker.on('failed', (job, err) => {
