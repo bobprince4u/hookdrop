@@ -90,37 +90,59 @@ router.get(
 )
 
 // Admin stats (protect this with your own user ID check in production)
-router.get('/admin/stats', authenticate, async (req, res) => {
-  const db = (await import('../db')).AppDataSource
-  const [
-    [{ count: total_users }],
-    [{ count: free_users }],
-    [{ count: pro_users }],
-    [{ count: total_events }],
-    [{ count: total_endpoints }],
-    [{ count: events_today }],
-  ] = await Promise.all([
-    db.query('SELECT COUNT(*) FROM users'),
-    db.query("SELECT COUNT(*) FROM users WHERE plan = 'free'"),
-    db.query("SELECT COUNT(*) FROM users WHERE plan = 'pro'"),
-    db.query('SELECT COUNT(*) FROM events'),
-    db.query('SELECT COUNT(*) FROM endpoints'),
-    db.query(
-      "SELECT COUNT(*) FROM events WHERE received_at >= NOW() - INTERVAL '1 day'"
-    ),
-  ])
+router.get('/admin/stats', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL
+    if (req.user!.email !== adminEmail) {
+      res.status(403).json({ error: 'Not authorized' })
+      return
+    }
 
-  res.json({
-    total_users: parseInt(total_users),
-    free_users: parseInt(free_users),
-    pro_users: parseInt(pro_users),
-    total_events: parseInt(total_events),
-    total_endpoints: parseInt(total_endpoints),
-    events_today: parseInt(events_today),
-  })
+    const db = (await import('../db')).AppDataSource
+
+    const [
+      [{ count: total_users }],
+      [{ count: free_users }],
+      [{ count: starter_users }],
+      [{ count: pro_users }],
+      [{ count: team_users }],
+      [{ count: total_events }],
+      [{ count: total_endpoints }],
+      [{ count: events_today }],
+      [{ count: total_deliveries }],
+      [{ count: failed_deliveries }],
+    ] = await Promise.all([
+      db.query('SELECT COUNT(*) FROM users'),
+      db.query("SELECT COUNT(*) FROM users WHERE plan = 'free'"),
+      db.query("SELECT COUNT(*) FROM users WHERE plan = 'starter'"),
+      db.query("SELECT COUNT(*) FROM users WHERE plan = 'pro'"),
+      db.query("SELECT COUNT(*) FROM users WHERE plan = 'team'"),
+      db.query('SELECT COUNT(*) FROM events'),
+      db.query('SELECT COUNT(*) FROM endpoints'),
+      db.query(
+        "SELECT COUNT(*) FROM events WHERE received_at >= NOW() - INTERVAL '1 day'"
+      ),
+      db.query('SELECT COUNT(*) FROM deliveries'),
+      db.query("SELECT COUNT(*) FROM deliveries WHERE status = 'dead_letter'"),
+    ])
+
+    res.json({
+      total_users: parseInt(total_users),
+      free_users: parseInt(free_users),
+      starter_users: parseInt(starter_users),
+      pro_users: parseInt(pro_users),
+      team_users: parseInt(team_users),
+      total_events: parseInt(total_events),
+      total_endpoints: parseInt(total_endpoints),
+      events_today: parseInt(events_today),
+      total_deliveries: parseInt(total_deliveries),
+      failed_deliveries: parseInt(failed_deliveries),
+    })
+  } catch (error) {
+    console.error('Admin stats error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
 })
-
-export default router
 
 router.get('/billing/mode', (_req, res) => {
   res.json({
@@ -224,3 +246,38 @@ router.post('/feedback', authenticate, async (req: AuthRequest, res) => {
     res.status(500).json({ error: 'Failed to send feedback' })
   }
 })
+router.get('/admin/users', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL
+    if (req.user!.email !== adminEmail) {
+      res.status(403).json({ error: 'Not authorized' })
+      return
+    }
+
+    const db = (await import('../db')).AppDataSource
+    const users = await db.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.plan,
+        u.payment_provider,
+        u.plan_expires_at,
+        u.created_at,
+        COUNT(DISTINCT e.id) as endpoint_count,
+        COUNT(DISTINCT ev.id) as event_count
+      FROM users u
+      LEFT JOIN endpoints e ON e.user_id = u.id
+      LEFT JOIN events ev ON ev.endpoint_id = e.id
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `)
+
+    res.json({ users })
+  } catch (error) {
+    console.error('Admin users error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+export default router
