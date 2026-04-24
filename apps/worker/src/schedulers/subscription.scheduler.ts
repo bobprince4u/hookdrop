@@ -74,3 +74,20 @@ const checkExpiringSubscriptions = async () => {
     console.error('Subscription scheduler error:', error)
   }
 }
+
+const cleanupDemoEvents = async () => {
+  try {
+    const { AppDataSource } = await import('../db')
+    await AppDataSource.query(`
+      DELETE FROM events
+      WHERE endpoint_id = '00000000-0000-0000-0000-000000000002'
+      AND received_at < NOW() - INTERVAL '1 hour'
+    `)
+    console.log('Demo events cleaned up')
+  } catch (error) {
+    console.error('Demo cleanup error:', error)
+  }
+}
+
+// Clean up demo events every hour
+cron.schedule('0 * * * *', cleanupDemoEvents)

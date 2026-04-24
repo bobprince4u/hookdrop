@@ -113,6 +113,12 @@ export default function Home() {
             >
               Sign in →
             </Link>
+            <Link
+              href="/demo"
+              className="text-sm font-medium px-6 py-3 rounded-xl border border-white/10 text-zinc-300 hover:border-indigo-500/40 hover:text-white transition-all"
+            >
+              ▶ Watch live demo
+            </Link>
           </div>
           <p className="text-xs text-zinc-600 mt-3">
             Free plan includes 500 events/month

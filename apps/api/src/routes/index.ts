@@ -281,3 +281,30 @@ router.get('/admin/users', authenticate, async (req: AuthRequest, res) => {
 })
 
 export default router
+
+// Public demo endpoint — no auth required
+router.get('/demo/events', async (_req, res) => {
+  try {
+    const db = (await import('../db')).AppDataSource
+    const events = await db.query(`
+      SELECT 
+        e.id,
+        e.method,
+        e.body,
+        e.headers,
+        e.source_ip,
+        e.status,
+        e.received_at
+      FROM events e
+      JOIN endpoints ep ON ep.id = e.endpoint_id
+      WHERE ep.public_token = 'demo-hookdrop-live-2024'
+      AND e.received_at > NOW() - INTERVAL '1 hour'
+      ORDER BY e.received_at DESC
+      LIMIT 20
+    `)
+    res.json({ events })
+  } catch (error) {
+    console.error('Demo events error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
