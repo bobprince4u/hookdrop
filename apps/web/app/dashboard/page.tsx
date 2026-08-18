@@ -20,45 +20,63 @@ export default function DashboardPage() {
   const [newName, setNewName] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  /**
+   * Surfaced rather than only logged (H-26, H-48).
+   *
+   * Creating an endpoint can now legitimately fail — the free plan caps endpoints and the
+   * API answers 403 — and every failure here went to the console alone, so the form closed,
+   * nothing appeared on screen, and the user was left to conclude the product was broken.
+   */
+  const [error, setError] = useState<string | null>(null)
 
   const fetchEndpoints = async () => {
     try {
+      setError(null)
       const res = await api.get('/api/endpoints')
-      setEndpoints(res.data.endpoints)
+      setEndpoints(Array.isArray(res.data?.endpoints) ? res.data.endpoints : [])
     } catch (err) {
-      console.error(err)
+      // `console.error(err)` on an axios error prints the whole request config into
+      // devtools, `Authorization` header included (H-48).
+      console.error('Endpoint load failed:', describeApiError(err))
+      setError(describeApiError(err))
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchEndpoints()
+    void fetchEndpoints()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const createEndpoint = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newName.trim()) return
     setCreating(true)
+    setError(null)
     try {
-      await api.post('/api/endpoints', { name: newName })
+      await api.post('/api/endpoints', { name: newName.trim() })
       setNewName('')
       setShowForm(false)
-      fetchEndpoints()
+      void fetchEndpoints()
     } catch (err) {
-      console.error(err)
+      console.error('Endpoint create failed:', describeApiError(err))
+      // The form stays open on failure so the typed name is not lost.
+      setError(describeApiError(err))
     } finally {
       setCreating(false)
     }
   }
 
   const deleteEndpoint = async (id: string) => {
-    if (!confirm('Delete this endpoint and all its events?')) return
+    if (!window.confirm('Delete this endpoint and all its events?')) return
+    setError(null)
     try {
       await api.delete(`/api/endpoints/${id}`)
-      fetchEndpoints()
+      void fetchEndpoints()
     } catch (err) {
-      console.error(err)
+      console.error('Endpoint delete failed:', describeApiError(err))
+      setError(describeApiError(err))
     }
   }
 
