@@ -106,8 +106,16 @@ export const adminUserQuerySchema = paginationSchema.extend({
 })
 export type AdminUserQuery = z.infer<typeof adminUserQuerySchema>
 
+/**
+ * `general` is in this list because `components/FeedbackWidget.tsx` offers exactly three
+ * categories — Bug, Feature, General — and `general` is the default selection. An enum of
+ * `bug | feature | question | other` would have 400'd the most common submission the
+ * product makes, which is how mounting a validator can break a working feature: the schema
+ * has to describe the client that exists, not the one it would have been nice to have.
+ * `question` and `other` are kept for direct API callers.
+ */
 export const feedbackSchema = z.object({
-  type: z.enum(['bug', 'feature', 'question', 'other']),
+  type: z.enum(['bug', 'feature', 'general', 'question', 'other']),
   message: z.string().trim().min(1, 'Message is required').max(5000),
 })
 

@@ -1,7 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { api } from '@/lib/api'
+import { api, describeApiError } from '@/lib/api'
+
+/** Matches `feedbackSchema`'s cap in the API service, so the 400 is unreachable. */
+const MAX_MESSAGE_LENGTH = 5000
 
 export default function FeedbackWidget() {
   const [open, setOpen] = useState(false)
@@ -9,16 +12,22 @@ export default function FeedbackWidget() {
   const [message, setMessage] = useState('')
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
+  /** A silent failure here reads as "sent" to the user, because nothing changes. */
+  const [error, setError] = useState<string | null>(null)
 
   const submit = async () => {
     if (!message.trim()) return
     setLoading(true)
+    setError(null)
     try {
       await api.post('/api/feedback', { type, message })
       setSent(true)
       setTimeout(() => { setOpen(false); setSent(false); setMessage('') }, 2000)
     } catch (err) {
-      console.error(err)
+      // Was `console.error(err)`, which prints the axios request config — bearer token
+      // included — into devtools (H-48).
+      console.error('Feedback submit failed:', describeApiError(err))
+      setError(describeApiError(err))
     } finally {
       setLoading(false)
     }
@@ -73,6 +82,7 @@ export default function FeedbackWidget() {
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
+                maxLength={MAX_MESSAGE_LENGTH}
                 placeholder={
                   type === 'bug' ? "What went wrong? What did you expect?" :
                   type === 'feature' ? "What would you like to see?" :
@@ -82,6 +92,8 @@ export default function FeedbackWidget() {
                 className="w-full text-xs rounded-xl px-3 py-2.5 resize-none focus:outline-none"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f9fafb' }}
               />
+
+              {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
 
               <button
                 onClick={submit}

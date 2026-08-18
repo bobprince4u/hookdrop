@@ -4,8 +4,20 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, describeApiError } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth'
+
+/**
+ * Stated up front rather than discovered through a 400 (H-25).
+ *
+ * `passwordSchema` requires 12 characters, mixed case and a digit. The form used to
+ * accept anything and let the server decide, which was fine when the server accepted
+ * anything too — now it means a user types a password, submits, and is told no by a
+ * rule the page never mentioned.
+ */
+const PASSWORD_MIN_LENGTH = 12
+const PASSWORD_HINT =
+  'At least 12 characters, with upper and lower case letters and a number.'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -25,8 +37,9 @@ export default function RegisterPage() {
       setAuth(res.data.user, res.data.accessToken)
       router.push('/dashboard')
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } }
-      setError(error.response?.data?.error || 'Registration failed')
+      // `describeApiError` unpacks `details[]`, so the specific rule that failed is
+      // shown instead of a bare "Validation failed".
+      setError(describeApiError(err))
     } finally {
       setLoading(false)
     }
@@ -80,11 +93,18 @@ export default function RegisterPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={72}
+                autoComplete="new-password"
+                aria-describedby="password-hint"
                 className="w-full rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-colors"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#f9fafb' }}
-                placeholder="••••••••"
+                placeholder="••••••••••••"
                 required
               />
+              <p id="password-hint" className="text-xs text-zinc-600 mt-1.5">
+                {PASSWORD_HINT}
+              </p>
             </div>
             <button
               type="submit"

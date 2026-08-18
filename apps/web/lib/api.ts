@@ -339,10 +339,49 @@ api.interceptors.response.use(
  * This returns the server's own `error` string when there is one, and a status line
  * otherwise. Nothing else from the error is exposed.
  */
+
+/** Bound on rendered text, so a hostile or broken response cannot fill the page. */
+const MAX_MESSAGE_LENGTH = 300
+
+interface ValidationDetail {
+  field?: unknown
+  message?: unknown
+}
+
+/**
+ * `validateBody` answers `{ error: 'Validation failed', details: [{field, message}] }`,
+ * so the top-level string alone would tell a user only that *something* was wrong with
+ * a form they cannot see the rules for — "Validation failed" in place of "Password must
+ * be at least 12 characters".
+ *
+ * Safe to render: `middleware/validate.ts` deliberately lists field names and messages
+ * and never the submitted values, precisely so this text can be shown and logged.
+ */
+const describeValidationDetails = (data: unknown): string | null => {
+  const details = (data as { details?: unknown } | undefined)?.details
+  if (!Array.isArray(details) || details.length === 0) return null
+
+  const messages = (details as ValidationDetail[])
+    .map((detail) => (typeof detail?.message === 'string' ? detail.message : null))
+    .filter((message): message is string => message !== null && message.length > 0)
+
+  if (messages.length === 0) return null
+  return messages.slice(0, 3).join('. ').slice(0, MAX_MESSAGE_LENGTH)
+}
+
 export const describeApiError = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
-    const message = (error.response?.data as { error?: unknown } | undefined)?.error
-    if (typeof message === 'string' && message.length > 0 && message.length <= 300) {
+    const data = error.response?.data
+
+    const validation = describeValidationDetails(data)
+    if (validation) return validation
+
+    const message = (data as { error?: unknown } | undefined)?.error
+    if (
+      typeof message === 'string' &&
+      message.length > 0 &&
+      message.length <= MAX_MESSAGE_LENGTH
+    ) {
       return message
     }
     if (error.response) return `Request failed with status ${error.response.status}`

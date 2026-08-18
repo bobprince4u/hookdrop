@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
-import { useAuthStore } from '@/lib/auth'
+import { useCallback, useEffect, useState } from 'react'
+import { api, describeApiError } from '@/lib/api'
+import { rehydrateAuth, useAuthStore } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 
 interface User {
@@ -15,6 +15,13 @@ interface User {
   plan_expires_at: string | null
   endpoint_count: number
   event_count: number
+}
+
+interface Pagination {
+  page: number
+  limit: number
+  total: number
+  pages: number
 }
 
 interface Stats {
@@ -44,49 +51,129 @@ const PLAN_TEXT: Record<string, string> = {
   team: '#4ade80',
 }
 
+/** Matches `paginationSchema`'s ceiling in the API service. */
+const PAGE_SIZE = 50
+
+/** Long enough that typing does not issue a query per keystroke. */
+const SEARCH_DEBOUNCE_MS = 300
+
 export default function AdminPage() {
   const { user } = useAuthStore()
   const router = useRouter()
   const [stats, setStats] = useState<Stats | null>(null)
   const [users, setUsers] = useState<User[]>([])
+  const [pagination, setPagination] = useState<Pagination | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [upgrading, setUpgrading] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [planFilter, setPlanFilter] = useState('all')
+  const [page, setPage] = useState(1)
   const [upgradeEmail, setUpgradeEmail] = useState('')
   const [upgradePlan, setUpgradePlan] = useState('pro')
   const [upgradeResult, setUpgradeResult] = useState('')
   const [showUpgradeForm, setShowUpgradeForm] = useState(false)
 
+  /**
+   * This page sits outside `dashboard/layout.tsx`, so nothing else restores the session
+   * for it. The access token lives in memory now (H-16), which means a direct load of
+   * `/admin` starts with no credential at all and `user` would stay null — the header
+   * would read "Logged in as" with nothing after it.
+   */
+  useEffect(() => {
+    void rehydrateAuth()
+  }, [])
+
+  /**
+   * The API answers 401 for "not signed in" and 403 for "signed in but not an admin",
+   * and both mean the same thing here: this page is not for you.
+   *
+   * A 401 is worth one refresh attempt first — the response interceptor in `lib/api.ts`
+   * makes that attempt and retries transparently — so by the time a 401 surfaces here the
+   * session is genuinely gone.
+   */
+  const handleLoadError = useCallback(
+    (err: unknown, context: string): void => {
+      const status =
+        typeof err === 'object' && err !== null && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined
+
+      /**
+       * The old handler logged the axios error object and then `console.log`'d
+       * `err.response.data` verbatim (H-48). An admin error body quotes the query that
+       * failed, and the error object carries the request's `Authorization` header.
+       */
+      console.error(`${context}:`, describeApiError(err))
+
+      if (status === 401 || status === 403) {
+        router.push('/dashboard')
+        return
+      }
+
+      setError(describeApiError(err))
+    },
+    [router]
+  )
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim())
+      setPage(1)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  /**
+   * Filtering moved to the server (H-33).
+   *
+   * `/api/admin/users` is paginated now, so the previous `users.filter(...)` searched
+   * only whatever page happened to be loaded and reported its length as the user count —
+   * a search for an address on page 3 returned "No users found".
+   */
+  const loadUsers = useCallback(async () => {
+    try {
+      const res = await api.get('/api/admin/users', {
+        params: {
+          page,
+          limit: PAGE_SIZE,
+          ...(planFilter === 'all' ? {} : { plan: planFilter }),
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+        },
+      })
+      setUsers(Array.isArray(res.data?.users) ? res.data.users : [])
+      setPagination(res.data?.pagination ?? null)
+      setError(null)
+    } catch (err) {
+      handleLoadError(err, 'Admin users load failed')
+    }
+  }, [page, planFilter, debouncedSearch, handleLoadError])
+
   useEffect(() => {
     const load = async () => {
       try {
-        const [statsRes, usersRes] = await Promise.all([
-          api.get('/api/admin/stats'),
-          api.get('/api/admin/users'),
-        ])
-
-        setStats(statsRes.data)
-        setUsers(usersRes.data.users || [])
-      } catch (err: any) {
-        console.error('Admin load error:', err)
-
-        if (err.response) {
-          console.log('Status:', err.response.status)
-          console.log('Data:', err.response.data)
-        }
-
-        // only redirect if unauthorized
-        if (err.response?.status === 401 || err.response?.status === 403) {
-          router.push('/dashboard')
-        }
-      } finally {
-        setLoading(false)
+        const res = await api.get('/api/admin/stats')
+        setStats(res.data)
+      } catch (err) {
+        handleLoadError(err, 'Admin stats load failed')
       }
     }
+    void load()
+  }, [handleLoadError])
 
-    load()
-  }, [router])
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      await loadUsers()
+      if (active) setLoading(false)
+    }
+    void load()
+    return () => {
+      active = false
+    }
+  }, [loadUsers])
+
   const handleManualUpgrade = async () => {
     if (!upgradeEmail || !upgradePlan) return
     setUpgrading(upgradeEmail)
@@ -98,23 +185,13 @@ export default function AdminPage() {
       })
       setUpgradeResult(`✓ ${upgradeEmail} upgraded to ${upgradePlan}`)
       setUpgradeEmail('')
-      const res = await api.get('/api/admin/users')
-      setUsers(res.data.users || [])
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } }
-      setUpgradeResult(`✗ ${error.response?.data?.error || 'Failed'}`)
+      await loadUsers()
+    } catch (err) {
+      setUpgradeResult(`✗ ${describeApiError(err)}`)
     } finally {
       setUpgrading(null)
     }
   }
-
-  const filteredUsers = users.filter((u) => {
-    const matchesSearch =
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      u.name.toLowerCase().includes(search.toLowerCase())
-    const matchesPlan = planFilter === 'all' || u.plan === planFilter
-    return matchesSearch && matchesPlan
-  })
 
   if (loading) {
     return (
@@ -150,6 +227,19 @@ export default function AdminPage() {
         </div>
 
         {/* User stats */}
+        {error && (
+          <div
+            className="text-sm px-4 py-3 rounded-xl border mb-4"
+            style={{
+              background: 'rgba(239,68,68,0.1)',
+              borderColor: 'rgba(239,68,68,0.2)',
+              color: '#f87171',
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
             {[
@@ -289,7 +379,7 @@ export default function AdminPage() {
         >
           <div className="p-5 border-b border-white/5 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <h2 className="text-sm font-medium">
-              Users ({filteredUsers.length})
+              Users ({(pagination?.total ?? users.length).toLocaleString()})
             </h2>
             <div className="flex gap-2 flex-wrap">
               <input
@@ -297,6 +387,7 @@ export default function AdminPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name or email..."
+                maxLength={200}
                 className="rounded-xl px-3 py-2 text-xs focus:outline-none w-48"
                 style={{
                   background: 'rgba(255,255,255,0.06)',
@@ -306,7 +397,10 @@ export default function AdminPage() {
               />
               <select
                 value={planFilter}
-                onChange={(e) => setPlanFilter(e.target.value)}
+                onChange={(e) => {
+                  setPlanFilter(e.target.value)
+                  setPage(1)
+                }}
                 className="rounded-xl px-3 py-2 text-xs focus:outline-none"
                 style={{
                   background: 'rgba(255,255,255,0.06)',
@@ -354,7 +448,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.length === 0 ? (
+                {users.length === 0 ? (
                   <tr>
                     <td
                       colSpan={8}
@@ -364,7 +458,7 @@ export default function AdminPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredUsers.map((u) => (
+                  users.map((u) => (
                     <tr
                       key={u.id}
                       className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
@@ -440,6 +534,32 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+
+          {pagination && pagination.pages > 1 && (
+            <div className="p-4 border-t border-white/5 flex items-center justify-between text-xs">
+              <span className="text-zinc-500">
+                Page {pagination.page} of {pagination.pages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={pagination.page <= 1}
+                  className="border border-white/10 hover:border-white/25 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  ← Previous
+                </button>
+                <button
+                  onClick={() =>
+                    setPage((p) => Math.min(pagination.pages, p + 1))
+                  }
+                  disabled={pagination.page >= pagination.pages}
+                  className="border border-white/10 hover:border-white/25 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

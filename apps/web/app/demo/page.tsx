@@ -15,10 +15,33 @@ interface DemoEvent {
   received_at: string
 }
 
-const DEMO_TOKEN = 'demo-hookdrop-live-2024'
-const INGESTION_URL = process.env.NEXT_PUBLIC_INGESTION_URL || 'https://hookdropingestion-production.up.railway.app'
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://hookdropapi-production.up.railway.app'
-const CAPTURE_URL = `${INGESTION_URL}/in/${DEMO_TOKEN}`
+/**
+ * Demo page configuration (H-24, H-48).
+ *
+ * All three of these were literals. The demo token was hardcoded as
+ * `'demo-hookdrop-live-2024'`, and the two service URLs carried hardcoded production
+ * fallbacks.
+ *
+ * The token is not a secret — the capture URL containing it is printed on the page for
+ * visitors to `curl` — but it must still come from configuration, because three separate
+ * places have to agree on its value: this page's socket `join`, the `/api/demo/fire` proxy,
+ * and `env.DEMO_PUBLIC_TOKEN` in the API, which is the only token an anonymous socket is
+ * allowed to subscribe to. Rotating the variable while a copy stays hardcoded here breaks
+ * the live feed silently — the socket connects, the join is refused, and the page just
+ * never updates.
+ *
+ * The URL fallbacks were worse: a local or preview build with the variables unset pointed
+ * the demo at *production* ingestion and production events, which is the same defect
+ * `app/api/demo/fire/route.ts` documents removing on the server side. Unset now means the
+ * demo reports itself unavailable.
+ */
+const DEMO_TOKEN = process.env.NEXT_PUBLIC_DEMO_TOKEN
+const INGESTION_URL = process.env.NEXT_PUBLIC_INGESTION_URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL
+const CAPTURE_URL =
+  INGESTION_URL && DEMO_TOKEN
+    ? `${INGESTION_URL.replace(/\/+$/, '')}/in/${DEMO_TOKEN}`
+    : null
 
 const EXAMPLE_PAYLOADS = [
   {
@@ -56,20 +79,34 @@ export default function DemoPage() {
 
   // Fetch existing demo events
   useEffect(() => {
+    if (!API_URL) return
     fetch(`${API_URL}/api/demo/events`)
-      .then(r => r.json())
-      .then(data => setEvents(data.events || []))
-      .catch(console.error)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => setEvents(Array.isArray(data?.events) ? data.events : []))
+      // Was `.catch(console.error)`, which prints the whole fetch failure including the
+      // request URL (H-48). A dead demo feed is not worth a stack trace either way.
+      .catch(() => console.error('Demo events could not be loaded'))
   }, [])
 
   // Connect to live WebSocket
   useEffect(() => {
+    if (!API_URL || !DEMO_TOKEN) return
     const socket = io(API_URL)
     socketRef.current = socket
 
     socket.on('connect', () => {
       socket.emit('join', DEMO_TOKEN)
       setLive(true)
+    })
+
+    /**
+     * The API replies to `join` rather than failing silently (H-13). Without this the page
+     * shows "live" while receiving nothing, which is exactly how a token mismatch used to
+     * hide itself.
+     */
+    socket.on('join_error', () => {
+      console.error('Demo room could not be joined')
+      setLive(false)
     })
 
     socket.on('new_event', (event: DemoEvent) => {
@@ -92,21 +129,38 @@ export default function DemoPage() {
     setFiring(true)
     try {
       // Route through Next.js API to avoid CORS issues
-      await fetch('/api/demo/fire', {
+      const response = await fetch('/api/demo/fire', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+
+      /**
+       * The proxy answers 503 when the demo is unconfigured and 502 when ingestion
+       * refuses, and neither was checked — the counter incremented and the CTA appeared
+       * as though the webhook had been delivered.
+       */
+      if (!response.ok) {
+        console.error('Demo webhook was not delivered:', response.status)
+        return
+      }
+
       setFiredCount(c => c + 1)
       if (firedCount >= 1) setShowCTA(true)
     } catch (err) {
-      console.error(err)
+      // Names the failure, not the request. `console.error(err)` on a fetch rejection
+      // prints the target URL (H-48).
+      console.error(
+        'Demo webhook request failed:',
+        err instanceof Error ? err.name : 'unknown error'
+      )
     } finally {
       setFiring(false)
     }
   }
 
   const copyUrl = () => {
+    if (!CAPTURE_URL) return
     navigator.clipboard.writeText(CAPTURE_URL)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -163,7 +217,9 @@ export default function DemoPage() {
         <div className="rounded-2xl border border-white/5 p-4 mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3" style={{ background: 'rgba(255,255,255,0.02)' }}>
           <div className="flex-1 min-w-0">
             <p className="text-xs text-zinc-500 mb-1">Demo capture URL — send any webhook here</p>
-            <code className="text-xs text-indigo-400 break-all">{CAPTURE_URL}</code>
+            <code className="text-xs text-indigo-400 break-all">
+              {CAPTURE_URL ?? 'The demo is not configured for this deployment.'}
+            </code>
           </div>
           <button
             onClick={copyUrl}
