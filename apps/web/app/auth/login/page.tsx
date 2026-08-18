@@ -1,11 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, describeApiError } from '@/lib/api'
 import { useAuthStore } from '@/lib/auth'
+
+/** Why the user is looking at a login form instead of the page they were on. */
+const SESSION_NOTICES: Record<string, string> = {
+  session_expired: 'Your session expired. Sign in again to continue.',
+  session_revoked:
+    'You were signed out of every device because a sign-in token was used twice. Sign in again.',
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -13,19 +20,35 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+
+  /**
+   * `lib/auth.ts` redirects here with `?reason=` when a session ends (H-16), so an
+   * expiry is explained rather than looking like a random logout.
+   *
+   * Read from `window.location` rather than with `useSearchParams`: this is cosmetic, and
+   * per `node_modules/next/dist/docs/.../use-search-params.md` a static page calling
+   * `useSearchParams` from a Client Component **fails the production build** unless it is
+   * wrapped in a `Suspense` boundary — which is why the billing success page is split into
+   * a page and a content component. Not worth restructuring a login form over a sentence.
+   */
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get('reason')
+    if (reason && reason in SESSION_NOTICES) setNotice(SESSION_NOTICES[reason])
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const res = await api.post('/api/auth/login', { email, password })
       setAuth(res.data.user, res.data.accessToken)
       router.push('/dashboard')
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { error?: string } } }
-      setError(error.response?.data?.error || 'Login failed')
+      setError(describeApiError(err))
     } finally {
       setLoading(false)
     }
@@ -44,6 +67,11 @@ export default function LoginPage() {
 
         <div className="rounded-2xl border border-white/5 p-8" style={{ background: 'rgba(255,255,255,0.02)' }}>
           <form onSubmit={handleLogin} className="space-y-4">
+            {notice && (
+              <div className="text-sm px-4 py-3 rounded-xl border" style={{ background: 'rgba(79,70,229,0.1)', borderColor: 'rgba(79,70,229,0.25)', color: '#a5b4fc' }}>
+                {notice}
+              </div>
+            )}
             {error && (
               <div className="text-sm px-4 py-3 rounded-xl border" style={{ background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
                 {error}

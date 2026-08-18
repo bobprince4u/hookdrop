@@ -1,20 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import { useAuthStore } from '@/lib/auth'
+import ApiKeysCard from '@/components/ApiKeysCard'
 
 export default function SettingsPage() {
   const { user, logout, planLoading } = useAuthStore()
-  const [copied, setCopied] = useState(false)
-
-  const copyToken = () => {
-    const token = localStorage.getItem('hookdrop_token')
-    if (token) {
-      navigator.clipboard.writeText(token)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
 
   const PLAN_DETAILS: Record<
     string,
@@ -80,21 +70,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div
-        className="rounded-2xl border border-white/5 p-6 mb-4"
-        style={{ background: 'rgba(255,255,255,0.02)' }}
-      >
-        <h2 className="text-sm font-medium mb-1">API token</h2>
-        <p className="text-xs text-zinc-500 mb-4">
-          Use this to authenticate direct API requests.
-        </p>
-        <button
-          onClick={copyToken}
-          className="text-sm border border-white/10 hover:border-white/20 px-4 py-2 rounded-xl transition-colors"
-        >
-          {copied ? '✓ Copied!' : 'Copy API token'}
-        </button>
-      </div>
+      <ApiKeysCard />
 
       <div
         className="rounded-2xl border border-white/5 p-6 mb-4"

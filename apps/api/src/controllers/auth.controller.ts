@@ -200,6 +200,22 @@ export const refresh = async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    /**
+     * Another tab rotated this token microseconds ago.
+     *
+     * The cookie this browser now holds is the winner's replacement, so the answer is
+     * "try again" — and the cookie must **not** be cleared, because clearing it would
+     * destroy the valid token the winner was just issued and log the user out anyway.
+     * Nothing is revoked and nothing is logged as suspicious.
+     */
+    if (result.outcome === 'race') {
+      res.status(401).json({
+        error: 'A refresh for this session is already in progress; retry',
+        code: 'refresh_race',
+      })
+      return
+    }
+
     if (result.outcome === 'reused') {
       clearRefreshCookie(res)
       console.warn(

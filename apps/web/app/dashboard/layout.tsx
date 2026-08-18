@@ -13,26 +13,36 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { user, logout, token, refreshPlan } = useAuthStore()
+  const { user, logout, status, refreshPlan } = useAuthStore()
   const [menuOpen, setMenuOpen] = useState(false)
 
+  /**
+   * Restores the session from the httpOnly refresh cookie (H-16).
+   *
+   * The access token is held in memory now, so a reload starts with no credential and
+   * one refresh call is what brings the session back. `rehydrateAuth` is idempotent and
+   * single-flight, which matters here because StrictMode invokes this effect twice and
+   * two rotations of the same refresh token look like theft to the backend.
+   */
   useEffect(() => {
-    rehydrateAuth()
+    void rehydrateAuth()
   }, [])
 
+  /**
+   * Gate on `status`, not on the token. During `'loading'` the session is still being
+   * restored — the old check read `localStorage` directly and would now bounce every
+   * signed-in user to the login page before the refresh call had a chance to answer.
+   */
   useEffect(() => {
-    if (!token && typeof window !== 'undefined') {
-      const stored = localStorage.getItem('hookdrop_token')
-      if (!stored) router.push('/auth/login')
-    }
-  }, [token, router])
+    if (status === 'unauthenticated') router.replace('/auth/login')
+  }, [status, router])
 
   useEffect(() => {
-    if (!token) return
-    refreshPlan()
-    const interval = setInterval(refreshPlan, 5 * 60 * 1000)
+    if (status !== 'authenticated') return
+    void refreshPlan()
+    const interval = setInterval(() => void refreshPlan(), 5 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [token, refreshPlan])
+  }, [status, refreshPlan])
 
   return (
     <div

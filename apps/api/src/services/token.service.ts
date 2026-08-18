@@ -124,15 +124,38 @@ export const issueRefreshToken = async (
 export type RotationResult =
   | { outcome: 'rotated'; userId: string; refresh: IssuedRefreshToken }
   | { outcome: 'invalid' }
+  | { outcome: 'race'; userId: string }
   | { outcome: 'reused'; userId: string }
+
+/**
+ * How recently a token must have been replaced for a second presentation of it to be
+ * read as a race rather than as a leak.
+ *
+ * Rotation and multi-tab browsing collide by construction. Two tabs restoring the same
+ * session send the same cookie in the same instant; `FOR UPDATE` serialises them, so the
+ * loser necessarily finds a row that was revoked microseconds earlier. Treating that as
+ * a stolen token signs the user out of every device for opening a second tab — a
+ * self-inflicted denial of service that fires far more often than the attack it is
+ * looking for.
+ *
+ * The loser is answered with a plain 401 and nothing is revoked. Its cookie has already
+ * been replaced by the winner's `Set-Cookie`, so retrying the refresh succeeds, which is
+ * exactly what the frontend does on `code: 'refresh_race'`.
+ *
+ * A token presented again *after* this window is a different claim: the legitimate client
+ * moved on to the successor long ago, so someone else is holding a copy. That still
+ * revokes the family. Ten seconds covers a slow page load, not a session, and an attacker
+ * who wins this race gains one 401 and no token.
+ */
+const ROTATION_RACE_WINDOW_MS = 10_000
 
 /**
  * Consumes a refresh token and issues its replacement inside one transaction.
  *
- * The row is locked with `FOR UPDATE`, so two concurrent refreshes cannot both
- * consume the same token — the loser sees it already revoked and is treated as
- * reuse. Presenting an already-revoked token means the token leaked, so the whole
- * family is revoked and the caller must re-authenticate.
+ * The row is locked with `FOR UPDATE`, so two concurrent refreshes cannot both consume
+ * the same token. Presenting a token that was replaced longer ago than
+ * `ROTATION_RACE_WINDOW_MS` means the token leaked, so the whole family is revoked and
+ * the caller must re-authenticate.
  */
 export const rotateRefreshToken = async (
   raw: string,
@@ -153,6 +176,22 @@ export const rotateRefreshToken = async (
     }
 
     if (existing.revoked_at !== null) {
+      /**
+       * Revoked with no successor means logout or logout-all revoked it deliberately. A
+       * client that retries afterwards is stale, not hostile, and there is nothing left
+       * to revoke.
+       */
+      if (existing.replaced_by_id === null) {
+        return { outcome: 'invalid' as const }
+      }
+
+      if (
+        Date.now() - existing.revoked_at.getTime() <=
+        ROTATION_RACE_WINDOW_MS
+      ) {
+        return { outcome: 'race' as const, userId: existing.user_id }
+      }
+
       await manager
         .getRepository(RefreshToken)
         .update(

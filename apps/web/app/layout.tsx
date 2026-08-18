@@ -55,6 +55,26 @@ export const metadata: Metadata = {
   },
 }
 
+/**
+ * Third-party scripts (H-42).
+ *
+ * Both Plausible tags were raw `<script>` elements in `<head>`, which is what `next/script`
+ * exists to replace: Next.js cannot dedupe, order, or defer a tag it does not own, and the
+ * inline one had no `id`, which the Script component requires in order to track it.
+ *
+ * `strategy` is the default `afterInteractive` for both. The queue shim is declared first so
+ * that any `plausible(...)` call made before the remote script arrives is buffered rather than
+ * thrown away — previously it sat *after* an `async` script tag and only worked because an
+ * async script cannot block the parser.
+ *
+ * **`https://checkout.flutterwave.com/v3.js` was removed.** It loaded on every route,
+ * marketing pages included, and nothing ever called `FlutterwaveCheckout`: every provider's
+ * checkout is a full-page redirect to `authorization_url` (`app/dashboard/billing/page.tsx`).
+ * It was a third-party script on every page load with no feature behind it, and dropping it
+ * takes a host out of the CSP as well. If an inline Flutterwave checkout is added later, load
+ * it from the billing route's own layout — not from here — and allow-list the host in
+ * `next.config.ts`.
+ */
 export default function RootLayout({
   children,
 }: {
@@ -62,27 +82,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <script
-          async
-          src="https://plausible.io/js/pa-nTDBF4GUfeEH8BltPUNve.js"
-        />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)};
-              plausible.init=plausible.init||function(i){plausible.o=i||{}};
-              plausible.init();
-            `,
-          }}
-        />
-      </head>
       <body className={geist.className}>
         {children}
-        <Script
-          src="https://checkout.flutterwave.com/v3.js"
-          strategy="lazyOnload"
-        />
+        <Script id="plausible-init">
+          {`window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)};
+plausible.init=plausible.init||function(i){plausible.o=i||{}};
+plausible.init();`}
+        </Script>
+        <Script src="https://plausible.io/js/pa-nTDBF4GUfeEH8BltPUNve.js" />
       </body>
     </html>
   )
