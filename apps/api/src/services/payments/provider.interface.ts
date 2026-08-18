@@ -67,4 +67,20 @@ export interface PaymentProvider {
   ): Promise<TransactionConfirmation>
   getCustomerId(data: Record<string, unknown>): string
   getSubscriptionId(data: Record<string, unknown>): string
+  /**
+   * Candidate keys that link this webhook back to the intent row written when the
+   * payment was initialized.
+   *
+   * Needed because `reference` is not usable for that lookup on every provider.
+   * Stripe deliberately reports `event.id` as the reference — unique per delivery,
+   * which is exactly right for replay detection and useless for finding the intent,
+   * since the intent was recorded against the checkout session id. Paystack and
+   * Flutterwave do echo their original reference, but relying on that coincidence
+   * would silently break the moment a provider changed it.
+   *
+   * Returned newest-to-oldest in specificity; the first match wins. An empty array
+   * means the webhook cannot be tied to an intent, and the caller falls back to
+   * metadata with the reason recorded.
+   */
+  getIntentReferences?(data: Record<string, unknown>): string[]
 }

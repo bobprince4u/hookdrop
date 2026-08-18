@@ -1,14 +1,20 @@
 /**
- * Canonical plan catalogue.
+ * Canonical plan catalogue for the ingestion service.
  *
- * Before this file the same numbers were written out four times — in
- * `billing.controller.ts`, in `middleware/planLimits.ts`, in the ingestion
- * service, and again as an inline literal further down the same ingestion
- * function — with the inline copy already having drifted (H-26, H-36).
- * Everything server-side now reads from here.
+ * This is a deliberate verbatim copy of `apps/api/src/services/plan.service.ts`, following
+ * the same convention the entity files in this service already use — they are line-for-line
+ * copies of the API's. Stage H's `packages/shared` collapses all of them; until a shared
+ * package exists there is no way for one workspace to import another's `src/`.
  *
- * Values match what the marketing page and billing page advertise; changing a
- * number here changes enforcement everywhere.
+ * What it replaces is worse than a copy. `routes/ingest.ts` carried the event limits
+ * **twice** — once as a module-level `PLAN_LIMITS` and again as an inline literal inside
+ * the request handler, forty lines apart — and the two had already drifted apart in shape
+ * (`{ events_per_month: n }` vs a bare `n`). Together with `apps/api`'s
+ * `middleware/planLimits.ts` that made four independent copies of the same numbers, so
+ * changing a published limit required finding all four (H-26, H-36).
+ *
+ * Only this header comment differs between the copies; keep the **exported surface**
+ * identical in all of them. A partial copy is how drift starts.
  */
 
 export type PlanId = 'free' | 'starter' | 'pro' | 'team'
@@ -16,13 +22,7 @@ export type PlanId = 'free' | 'starter' | 'pro' | 'team'
 export interface PlanDefinition {
   readonly id: PlanId
   readonly name: string
-  /**
-   * Price in the currency's MAJOR unit (naira, not kobo).
-   *
-   * The Paystack provider multiplies by 100 before charging, so treating this as
-   * kobo would under-charge by 100x. Webhook amount verification converts per
-   * provider rather than assuming a shared unit (H-06).
-   */
+  /** Price in the currency's MAJOR unit (naira, not kobo). */
   readonly amount: number
   readonly currency: 'NGN'
   readonly events: number
@@ -32,7 +32,6 @@ export interface PlanDefinition {
   readonly ai_enabled: boolean
 }
 
-/** Declared as a const tuple so `z.enum(PLAN_IDS)` stays type-safe. */
 export const PLAN_IDS = ['free', 'starter', 'pro', 'team'] as const satisfies
   readonly PlanId[]
 
@@ -85,13 +84,12 @@ export const isPlanId = (value: unknown): value is PlanId =>
 /**
  * The plan a user is actually entitled to right now.
  *
- * A paid `plan` column with a `plan_expires_at` in the past is not an entitlement.
- * Previously nothing in the request path consulted `plan_expires_at`, so expired
- * subscriptions kept full access indefinitely (H-14, H-29), and cancellation —
- * which nulls the column — was an upgrade to a never-expiring paid plan (H-30).
+ * This service never consulted `plan_expires_at` at all: it read the `plan` column
+ * directly, so a lapsed Team subscriber kept ingesting at 500 000 events/month
+ * indefinitely, and the worker's nightly downgrade was the only thing that ever
+ * corrected it — hours late, and not at all if that job failed (H-29).
  *
  * A null `plan_expires_at` on a paid plan is treated as expired, not perpetual.
- * Grants that are meant to be open-ended must set an explicit future date.
  */
 export const resolveEffectivePlan = (user: {
   plan: string | null | undefined
@@ -103,9 +101,7 @@ export const resolveEffectivePlan = (user: {
     return PLANS.free
   }
 
-  const expiresAt = user.plan_expires_at
-    ? new Date(user.plan_expires_at)
-    : null
+  const expiresAt = user.plan_expires_at ? new Date(user.plan_expires_at) : null
 
   if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
     return PLANS.free
@@ -123,18 +119,29 @@ export const isPlanExpired = (user: {
   user.plan !== 'free' &&
   resolveEffectivePlan(user).id === 'free'
 
-/** UTC month boundary. Local-time boundaries shifted the quota window (H-21). */
+/**
+ * UTC month boundary (H-21).
+ *
+ * The counter this replaces built its boundary with `setDate(1); setHours(0,0,0,0)`, which
+ * is local time. Three consequences, all of them live:
+ *
+ *  - the quota window started at a different instant depending on the host's timezone, so
+ *    the API and the ingestion service disagreed about how many events a user had used;
+ *  - west of UTC the window opened *late*, so events from the first hours of the month
+ *    were counted against the previous month — which had already been billed;
+ *  - `setDate(1)` on a date whose day-of-month exceeds the target month's length rolls
+ *    over, and `setHours` mutates the same object it reads, so the two calls are
+ *    order-dependent on a value that is already wrong.
+ */
 export const startOfCurrentMonthUtc = (now: Date = new Date()): Date =>
   new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0))
 
 /**
  * `YYYY-MM` in UTC — the cache-key suffix for the quota counter.
  *
- * Present in this copy as well as the ingestion service's, and that is the point: the
- * ingestion service increments the counter and the API reads it back for the dashboard's
- * usage figure. A key derived from a boundary computed differently in the two services would
- * have them reporting different totals for the same month, which is the H-21 defect one
- * layer up.
+ * Deriving it from the same UTC boundary above is what keeps the counter and the window it
+ * counts in agreement: a key that rolled over at a different instant than the `COUNT(*)`
+ * it reconciles against would reconcile to the wrong month's total.
  */
 export const currentMonthKeyUtc = (now: Date = new Date()): string =>
   `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`

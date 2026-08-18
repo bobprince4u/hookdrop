@@ -141,7 +141,85 @@ app.get('/health', (_req, res) => {
 // Coarse ceiling for the whole API; per-route limiters are tighter.
 app.use('/api', apiRateLimiter, router)
 
-app.use(Sentry.expressErrorHandler())
+/**
+ * Body-parser failures, translated into the status codes they actually are (H-32).
+ *
+ * Explicit body limits are only half a fix. Without this, exceeding one produced a
+ * `PayloadTooLargeError` that fell through to the generic handler below and was
+ * reported as `500 Internal server error` — telling the client the server broke when
+ * the server had in fact worked correctly and rejected an oversized request. A caller
+ * cannot act on a 500; a 413 that names the limit tells them exactly what to change.
+ *
+ * Malformed JSON is handled in the same place for the same reason: it was also a 500,
+ * and it is just as plainly a 400.
+ *
+ * Registered *before* Sentry's handler so neither of these reaches the error tracker.
+ * Both are client-side conditions, and an easily-triggered public route that files an
+ * issue on every oversized body is a denial-of-service against your own alerting.
+ */
+interface BodyParserError extends Error {
+  type?: string
+  status?: number
+  limit?: number
+  length?: number
+}
+
+app.use(
+  (
+    error: BodyParserError,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    if (res.headersSent) {
+      next(error)
+      return
+    }
+
+    if (error?.type === 'entity.too.large') {
+      res.status(413).json({
+        error: 'Request body too large',
+        code: 'payload_too_large',
+        // Names only what the client needs to correct the request.
+        limit_bytes: error.limit ?? null,
+      })
+      return
+    }
+
+    if (error?.type === 'entity.parse.failed') {
+      res.status(400).json({
+        error: 'Request body is not valid JSON',
+        code: 'invalid_json',
+      })
+      return
+    }
+
+    if (error?.type === 'encoding.unsupported') {
+      res.status(415).json({
+        error: 'Unsupported content encoding',
+        code: 'unsupported_encoding',
+      })
+      return
+    }
+
+    // Client hung up mid-upload. Nothing to report and nobody to answer.
+    if (error?.type === 'request.aborted') {
+      return
+    }
+
+    next(error)
+  }
+)
+
+/**
+ * Sentry's error handler, registered after the routes and before our own fallback.
+ *
+ * `Sentry.expressErrorHandler()` returns a middleware whose signature does not
+ * structurally match Express 5's `ErrorRequestHandler`, so `app.use()` falls through
+ * to its path overload and rejects the argument. `setupExpressErrorHandler` is the
+ * supported entry point and installs the same handler.
+ */
+Sentry.setupExpressErrorHandler(app)
 
 /**
  * Fallback error handler.
@@ -183,14 +261,22 @@ io.use((socket, next) => {
     return
   }
 
-  const payload = verifyAccessToken(token)
-  if (!payload) {
+  try {
+    const payload = verifyAccessToken(token)
+    socket.data.userId = payload.id
+    next()
+  } catch {
+    /**
+     * `verifyAccessToken` *throws* on a malformed, expired, or wrong-audience token —
+     * it never returns null, so the previous `if (!payload)` guard was unreachable and
+     * the throw escaped this middleware. Socket.IO does not wrap middleware calls, so
+     * one bad handshake token was an uncaught exception and took the process down.
+     *
+     * Rejecting is also the only safe branch: falling through to the anonymous path
+     * would hand demo-room access to a caller who presented a token we just refused.
+     */
     next(new Error('unauthorized'))
-    return
   }
-
-  socket.data.userId = payload.id
-  next()
 })
 
 io.on('connection', (socket) => {

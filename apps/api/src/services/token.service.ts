@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import jwt from 'jsonwebtoken'
+import { IsNull } from 'typeorm'
 import { AppDataSource } from '../db'
 import { RefreshToken } from '../entities/RefreshToken'
 import { env } from '../config/env'
@@ -155,7 +156,7 @@ export const rotateRefreshToken = async (
       await manager
         .getRepository(RefreshToken)
         .update(
-          { user_id: existing.user_id, revoked_at: null },
+          { user_id: existing.user_id, revoked_at: IsNull() },
           { revoked_at: new Date() }
         )
       return { outcome: 'reused' as const, userId: existing.user_id }
@@ -200,7 +201,7 @@ export const rotateRefreshToken = async (
 
 export const revokeRefreshToken = async (raw: string): Promise<void> => {
   await AppDataSource.getRepository(RefreshToken).update(
-    { token_hash: hashRefreshToken(raw), revoked_at: null },
+    { token_hash: hashRefreshToken(raw), revoked_at: IsNull() },
     { revoked_at: new Date() }
   )
 }
@@ -209,7 +210,7 @@ export const revokeAllRefreshTokensForUser = async (
   userId: string
 ): Promise<void> => {
   await AppDataSource.getRepository(RefreshToken).update(
-    { user_id: userId, revoked_at: null },
+    { user_id: userId, revoked_at: IsNull() },
     { revoked_at: new Date() }
   )
 }

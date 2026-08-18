@@ -34,6 +34,8 @@ export class RefreshToken {
   @Column({ type: 'varchar', length: 64 })
   token_hash!: string
 
+  /** Indexed because `purgeExpiredRefreshTokens` deletes by this column. */
+  @Index('idx_refresh_tokens_expires_at')
   @Column({ type: 'timestamptz' })
   expires_at!: Date
 

@@ -1,310 +1,400 @@
 import { Router } from 'express'
-import { authenticate, AuthRequest } from '../middleware/auth'
-import { register, login, refresh } from '../controllers/auth.controller'
+
 import {
-  listEndpoints,
+  authenticate,
+  loadCurrentUser,
+  requireAdmin,
+  requirePlan,
+} from '../middleware/auth'
+import {
+  validateBody,
+  validateParams,
+  validateQuery,
+} from '../middleware/validate'
+import {
+  aiRateLimiter,
+  loginRateLimiter,
+  publicRateLimiter,
+  refreshRateLimiter,
+  registerRateLimiter,
+  replayRateLimiter,
+} from '../middleware/rateLimiter'
+
+import {
+  login,
+  logout,
+  logoutAll,
+  refresh,
+  register,
+} from '../controllers/auth.controller'
+import {
   createEndpoint,
-  getEndpoint,
-  updateEndpoint,
   deleteEndpoint,
+  getEndpoint,
+  listEndpoints,
+  updateEndpoint,
 } from '../controllers/endpoints.controller'
 import {
-  listDestinations,
   createDestination,
   deleteDestination,
+  listDestinations,
 } from '../controllers/destinations.controller'
 import {
-  listEvents,
   getEvent,
-  replayEvent,
   getEventDeliveries,
+  listEvents,
+  replayEvent,
 } from '../controllers/events.controller'
 import {
-  explainPayload,
-  generateSchema,
-  generateHandler,
   diagnoseFailure,
+  explainPayload,
+  generateHandler,
+  generateSchema,
 } from '../controllers/ai.controller'
 import {
+  getCurrentPlan,
   getPlans,
   initializePayment,
-  handleWebhook,
-  getCurrentPlan,
+  verifyPayment,
 } from '../controllers/billing.controller'
+import {
+  getAdminStats,
+  listAdminUsers,
+  upgradeUser,
+} from '../controllers/admin.controller'
+import { getDemoEvents, getRates } from '../controllers/public.controller'
+import { submitFeedback } from '../controllers/feedback.controller'
 
+import {
+  adminUpgradeSchema,
+  adminUserQuerySchema,
+  createDestinationSchema,
+  createEndpointSchema,
+  destinationParamsSchema,
+  endpointParamsSchema,
+  eventParamsSchema,
+  eventQuerySchema,
+  feedbackSchema,
+  generateHandlerSchema,
+  initializePaymentSchema,
+  loginSchema,
+  refreshSchema,
+  registerSchema,
+  updateEndpointSchema,
+} from '../validation/schemas'
+
+/**
+ * API route table.
+ *
+ * Every limiter, validator and authorization middleware in this service already
+ * existed and none of them were mounted — this file imported `authenticate` and
+ * nothing else, which is why H-07, H-14, H-20, H-24, H-25, H-26 and H-32 all reduced
+ * to "written but dangling". Mounting them is the fix for all of those at once.
+ *
+ * Four handlers were also defined inline here, with their own ad-hoc authorization and
+ * their own database queries. They now live in `admin.controller.ts`,
+ * `public.controller.ts` and `feedback.controller.ts`, so this file is a route table
+ * and nothing else.
+ *
+ * ## Middleware order
+ *
+ * 1. `authenticate` — 401 first. An unauthenticated caller drives no work and learns
+ *    nothing about a route's shape, not even its parameter format.
+ * 2. limiter — placed after `authenticate` so per-user buckets can key on the user id
+ *    (`userOrIpKey`), and before anything else so a throttled request costs no
+ *    database work. Public routes have no step 1, so their limiter comes first.
+ * 3. `validateParams` — a malformed uuid is rejected before it reaches Postgres.
+ * 4. `loadCurrentUser` — the authoritative user row, mounted only where entitlement or
+ *    profile data is actually needed rather than on everything.
+ * 5. `requirePlan` / `requireAdmin` — authorization, always **before** the body is
+ *    read. The old `/admin/upgrade-user` destructured the body and resolved
+ *    repositories first and only then compared emails (H-33).
+ * 6. `validateBody` / `validateQuery`.
+ * 7. handler.
+ *
+ * This deviates from the order sketched in the plan, which put `validateParams` ahead
+ * of `authenticate`: a 400 describing the expected parameter format is a response an
+ * anonymous caller should not be able to elicit. The property that mattered —
+ * authorization before any body destructuring or repository work — holds either way.
+ *
+ * ## Removed
+ *
+ *  - `POST /billing/webhook`. `index.ts` mounts the same path app-level with
+ *    `express.raw()` *before* this router, so that registration always won and this
+ *    one was unreachable. Keeping a dead copy of a signature-verified route next to
+ *    the live one only invites someone to "fix" the wrong one.
+ *  - `GET /billing/mode`. It read `PAYMENT_MODE`, which no longer exists in the
+ *    validated config, and told users payments were in test mode and the Pro plan was
+ *    free — while the live payment providers took real money.
+ *  - `GET /test-sentry`. A public, unauthenticated route whose entire purpose was to
+ *    throw. Verify error reporting from a deploy log, not from a route strangers can
+ *    call.
+ */
 const router = Router()
 
-// Auth routes
-router.post('/auth/register', register)
-router.post('/auth/login', login)
-router.post('/auth/refresh', refresh)
+/* -------------------------------------------------------------------------- */
+/* Auth                                                                       */
+/* -------------------------------------------------------------------------- */
 
-// Endpoint routes
+router.post(
+  '/auth/register',
+  registerRateLimiter,
+  validateBody(registerSchema),
+  register
+)
+
+router.post('/auth/login', loginRateLimiter, validateBody(loginSchema), login)
+
+/**
+ * The refresh token normally arrives in an httpOnly cookie, so the body is optional
+ * and `.default({})` keeps a bodyless request valid — without it, a POST carrying no
+ * `Content-Type` leaves `req.body` undefined in Express 5 and the schema would reject
+ * the browser's own refresh call.
+ */
+router.post(
+  '/auth/refresh',
+  refreshRateLimiter,
+  validateBody(refreshSchema.default({})),
+  refresh
+)
+
+/**
+ * Unauthenticated on purpose. Logout clears the cookie and revokes whatever token was
+ * presented; requiring a valid *access* token would mean an expired session could not
+ * be logged out, which is precisely when a user wants to.
+ */
+router.post('/auth/logout', logout)
+
+/** Revokes every session for the account, so it must prove which account that is. */
+router.post('/auth/logout-all', authenticate, logoutAll)
+
+/* -------------------------------------------------------------------------- */
+/* Endpoints                                                                  */
+/* -------------------------------------------------------------------------- */
+
 router.get('/endpoints', authenticate, listEndpoints)
-router.post('/endpoints', authenticate, createEndpoint)
-router.get('/endpoints/:id', authenticate, getEndpoint)
-router.patch('/endpoints/:id', authenticate, updateEndpoint)
-router.delete('/endpoints/:id', authenticate, deleteEndpoint)
 
-// Destination routes
-router.get('/endpoints/:id/destinations', authenticate, listDestinations)
-router.post('/endpoints/:id/destinations', authenticate, createDestination)
+/** `loadCurrentUser` supplies the effective plan the endpoint cap is read from (H-26). */
+router.post(
+  '/endpoints',
+  authenticate,
+  loadCurrentUser,
+  validateBody(createEndpointSchema),
+  createEndpoint
+)
+
+router.get(
+  '/endpoints/:id',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  getEndpoint
+)
+
+router.patch(
+  '/endpoints/:id',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  validateBody(updateEndpointSchema),
+  updateEndpoint
+)
+
+router.delete(
+  '/endpoints/:id',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  deleteEndpoint
+)
+
+/* -------------------------------------------------------------------------- */
+/* Destinations                                                               */
+/* -------------------------------------------------------------------------- */
+
+router.get(
+  '/endpoints/:id/destinations',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  listDestinations
+)
+
+router.post(
+  '/endpoints/:id/destinations',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  validateBody(createDestinationSchema),
+  createDestination
+)
+
 router.delete(
   '/endpoints/:id/destinations/:dId',
   authenticate,
+  validateParams(destinationParamsSchema),
   deleteDestination
 )
 
-//Billing routes
-router.get('/billing/plans', getPlans)
-router.get('/billing/current', authenticate, getCurrentPlan)
-router.post('/billing/initialize', authenticate, initializePayment)
-router.post('/billing/webhook', handleWebhook)
+/* -------------------------------------------------------------------------- */
+/* Events                                                                     */
+/* -------------------------------------------------------------------------- */
 
-// Event routes
-router.get('/endpoints/:id/events', authenticate, listEvents)
-router.get('/endpoints/:id/events/:eId', authenticate, getEvent)
-router.post('/endpoints/:id/events/:eId/replay', authenticate, replayEvent)
+/**
+ * `validateQuery` is not optional here. `listEvents` reads its filters through
+ * `validatedQuery()`, which throws by design when the middleware is absent — so this
+ * route returned 500 on every single call while the validator sat unmounted (H-20).
+ */
+router.get(
+  '/endpoints/:id/events',
+  authenticate,
+  validateParams(endpointParamsSchema),
+  validateQuery(eventQuerySchema),
+  listEvents
+)
+
+router.get(
+  '/endpoints/:id/events/:eId',
+  authenticate,
+  validateParams(eventParamsSchema),
+  getEvent
+)
+
+/** Replay enqueues delivery work, so it gets the tighter bucket. */
+router.post(
+  '/endpoints/:id/events/:eId/replay',
+  authenticate,
+  replayRateLimiter,
+  validateParams(eventParamsSchema),
+  replayEvent
+)
+
 router.get(
   '/endpoints/:id/events/:eId/deliveries',
   authenticate,
+  validateParams(eventParamsSchema),
   getEventDeliveries
 )
 
-//Ai routes
-router.get(
-  '/endpoints/:id/events/:eId/ai/explain',
+/* -------------------------------------------------------------------------- */
+/* AI                                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Shared chain for the four AI routes.
+ *
+ * `requirePlan('starter')` and the `ai_enabled` check inside the controller are both
+ * kept. They are not duplicates: the middleware refuses on plan *rank* before any
+ * endpoint or event row is read, while the controller enforces the plan's `ai_enabled`
+ * capability flag, which is what actually governs the feature. The middleware saves the
+ * queries; the flag decides the answer.
+ *
+ * Both read `req.effectivePlan`, so an expired subscription stops generating billable
+ * model calls the moment it lapses — the old check consulted the stored `plan` column
+ * and ignored `plan_expires_at` entirely (H-14).
+ */
+const aiChain = [
   authenticate,
-  explainPayload
-)
-router.get('/endpoints/:id/events/:eId/ai/schema', authenticate, generateSchema)
+  aiRateLimiter,
+  validateParams(eventParamsSchema),
+  loadCurrentUser,
+  requirePlan('starter'),
+] as const
+
+router.get('/endpoints/:id/events/:eId/ai/explain', ...aiChain, explainPayload)
+
+router.get('/endpoints/:id/events/:eId/ai/schema', ...aiChain, generateSchema)
+
 router.post(
   '/endpoints/:id/events/:eId/ai/handler',
-  authenticate,
+  ...aiChain,
+  validateBody(generateHandlerSchema),
   generateHandler
 )
-router.get(
-  '/endpoints/:id/events/:eId/ai/diagnose',
+
+router.get('/endpoints/:id/events/:eId/ai/diagnose', ...aiChain, diagnoseFailure)
+
+/* -------------------------------------------------------------------------- */
+/* Billing                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Public: the pricing page reads both before anyone has an account. */
+router.get('/billing/plans', publicRateLimiter, getPlans)
+router.get('/billing/rates', publicRateLimiter, getRates)
+
+/**
+ * No `loadCurrentUser` on either of these: both handlers already load the user row
+ * themselves — `getCurrentPlan` to resolve the effective plan, `initializePayment` to
+ * price from the server catalogue — so mounting it would add a second identical query.
+ */
+router.get('/billing/current', authenticate, getCurrentPlan)
+
+router.post(
+  '/billing/initialize',
   authenticate,
-  diagnoseFailure
+  validateBody(initializePaymentSchema),
+  initializePayment
 )
 
-// Admin stats (protect this with your own user ID check in production)
-router.get('/admin/stats', authenticate, async (req: AuthRequest, res) => {
-  try {
-    const adminEmail = process.env.ADMIN_EMAIL
-    if (req.user!.email !== adminEmail) {
-      res.status(403).json({ error: 'Not authorized' })
-      return
-    }
+/**
+ * Authenticated because the answer is scoped to the caller's own intent rows, and that
+ * scoping is what stops `?reference=anything` from rendering a success screen (H-28).
+ * No `validateQuery`: the handler reads `reference`/`session_id` defensively and bounds
+ * the length itself, so it is correct with or without a validator in front of it.
+ */
+router.get('/billing/verify', authenticate, verifyPayment)
 
-    const db = (await import('../db')).AppDataSource
+/* -------------------------------------------------------------------------- */
+/* Admin                                                                      */
+/* -------------------------------------------------------------------------- */
 
-    const [
-      [{ count: total_users }],
-      [{ count: free_users }],
-      [{ count: starter_users }],
-      [{ count: pro_users }],
-      [{ count: team_users }],
-      [{ count: total_events }],
-      [{ count: total_endpoints }],
-      [{ count: events_today }],
-      [{ count: total_deliveries }],
-      [{ count: failed_deliveries }],
-    ] = await Promise.all([
-      db.query('SELECT COUNT(*) FROM users'),
-      db.query("SELECT COUNT(*) FROM users WHERE plan = 'free'"),
-      db.query("SELECT COUNT(*) FROM users WHERE plan = 'starter'"),
-      db.query("SELECT COUNT(*) FROM users WHERE plan = 'pro'"),
-      db.query("SELECT COUNT(*) FROM users WHERE plan = 'team'"),
-      db.query('SELECT COUNT(*) FROM events'),
-      db.query('SELECT COUNT(*) FROM endpoints'),
-      db.query(
-        "SELECT COUNT(*) FROM events WHERE received_at >= NOW() - INTERVAL '1 day'"
-      ),
-      db.query('SELECT COUNT(*) FROM deliveries'),
-      db.query("SELECT COUNT(*) FROM deliveries WHERE status = 'dead_letter'"),
-    ])
+/**
+ * `requireAdmin` replaces three separate inline `req.user.email !== process.env.ADMIN_EMAIL`
+ * comparisons. Those were the third of three disagreeing readers of the admin address
+ * — this file read `process.env.ADMIN_EMAIL`, `requireAdmin` read `ADMIN_EMAILS`, and
+ * the email service read `env.ADMIN_EMAIL` — which is why every admin route 403'd for
+ * everyone (H-31). It also fails closed on an empty allow-list, where `undefined !==
+ * undefined` had been doing the denying by coincidence.
+ */
+router.get('/admin/stats', authenticate, requireAdmin, getAdminStats)
 
-    res.json({
-      total_users: parseInt(total_users),
-      free_users: parseInt(free_users),
-      starter_users: parseInt(starter_users),
-      pro_users: parseInt(pro_users),
-      team_users: parseInt(team_users),
-      total_events: parseInt(total_events),
-      total_endpoints: parseInt(total_endpoints),
-      events_today: parseInt(events_today),
-      total_deliveries: parseInt(total_deliveries),
-      failed_deliveries: parseInt(failed_deliveries),
-    })
-  } catch (error) {
-    console.error('Admin stats error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+router.get(
+  '/admin/users',
+  authenticate,
+  requireAdmin,
+  validateQuery(adminUserQuerySchema),
+  listAdminUsers
+)
 
-router.get('/billing/mode', (_req, res) => {
-  res.json({
-    mode: process.env.PAYMENT_MODE || 'test',
-    message:
-      process.env.PAYMENT_MODE === 'live'
-        ? 'Payments are live'
-        : 'Payments are currently in test mode. Early access Pro plan is free — contact us.',
-  })
-})
-
-// Admin — manually upgrade a user (protect with your own check)
 router.post(
   '/admin/upgrade-user',
   authenticate,
-  async (req: AuthRequest, res) => {
-    try {
-      const { email, plan } = req.body
-      const db = (await import('../db')).AppDataSource
-      const userRepo = db.getRepository((await import('../entities/User')).User)
-
-      const adminEmail = process.env.ADMIN_EMAIL
-      if (req.user!.email !== adminEmail) {
-        res.status(403).json({ error: 'Not authorized' })
-        return
-      }
-
-      const user = await userRepo.findOne({ where: { email } })
-      if (!user) {
-        res.status(404).json({ error: 'User not found' })
-        return
-      }
-
-      await userRepo.update(user.id, {
-        plan,
-        payment_provider: 'manual',
-        plan_expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-      })
-
-      res.json({ ok: true, message: `${email} upgraded to ${plan}` })
-    } catch (error) {
-      console.error(error)
-      res.status(500).json({ error: 'Internal server error' })
-    }
-  }
+  requireAdmin,
+  validateBody(adminUpgradeSchema),
+  upgradeUser
 )
 
-router.get('/test-sentry', (_req, _res) => {
-  throw new Error('Sentry test error from Hookdrop API')
-})
+/* -------------------------------------------------------------------------- */
+/* Feedback                                                                   */
+/* -------------------------------------------------------------------------- */
 
-// Exchange rates via Flutterwave
-router.get('/billing/rates', async (_req, res) => {
-  try {
-    const axios = (await import('axios')).default
-    const currencies = ['USD', 'EUR', 'GBP']
-    const rates: Record<string, number> = { NGN: 1 }
+/** `loadCurrentUser` is what supplies a real name instead of the uuid the old call
+ * site passed in the `userName` position (H-23). */
+router.post(
+  '/feedback',
+  authenticate,
+  loadCurrentUser,
+  validateBody(feedbackSchema),
+  submitFeedback
+)
 
-    await Promise.all(
-      currencies.map(async (currency) => {
-        try {
-          const response = await axios.get(
-            `https://api.flutterwave.com/v3/fx-rates?from=${currency}&to=NGN&amount=1`,
-            {
-              headers: {
-                Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
-              },
-            }
-          )
-          rates[currency] = response.data.data.rate
-        } catch {
-          // Fallback rates if API fails
-          const fallback: Record<string, number> = {
-            USD: 1600,
-            EUR: 1750,
-            GBP: 2050,
-          }
-          rates[currency] = fallback[currency]
-        }
-      })
-    )
+/* -------------------------------------------------------------------------- */
+/* Public demo                                                                */
+/* -------------------------------------------------------------------------- */
 
-    res.json({ rates, base: 'NGN' })
-  } catch (error) {
-    console.error('Exchange rate error:', error)
-    res.json({
-      rates: { NGN: 1, USD: 1600, EUR: 1750, GBP: 2050 },
-      base: 'NGN',
-    })
-  }
-})
+router.get('/demo/events', publicRateLimiter, getDemoEvents)
 
-router.post('/feedback', authenticate, async (req: AuthRequest, res) => {
-  try {
-    const { type, message } = req.body
-    const { sendFeedbackEmail } = await import('../services/email.service')
-    await sendFeedbackEmail(req.user!.email, req.user!.id, type, message)
-    res.json({ ok: true })
-  } catch (error) {
-    console.error('Feedback error:', error)
-    res.status(500).json({ error: 'Failed to send feedback' })
-  }
-})
-router.get('/admin/users', authenticate, async (req: AuthRequest, res) => {
-  try {
-    const adminEmail = process.env.ADMIN_EMAIL
-    if (req.user!.email !== adminEmail) {
-      res.status(403).json({ error: 'Not authorized' })
-      return
-    }
-
-    const db = (await import('../db')).AppDataSource
-    const users = await db.query(`
-      SELECT 
-        u.id,
-        u.name,
-        u.email,
-        u.plan,
-        u.payment_provider,
-        u.plan_expires_at,
-        u.created_at,
-        COUNT(DISTINCT e.id) as endpoint_count,
-        COUNT(DISTINCT ev.id) as event_count
-      FROM users u
-      LEFT JOIN endpoints e ON e.user_id = u.id
-      LEFT JOIN events ev ON ev.endpoint_id = e.id
-      GROUP BY u.id
-      ORDER BY u.created_at DESC
-    `)
-
-    res.json({ users })
-  } catch (error) {
-    console.error('Admin users error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
+/**
+ * Exported last, after every route is registered.
+ *
+ * This is not cosmetic. The previous file placed `export default router` in the middle,
+ * with `/demo/events` registered below it — which happened to work, since the export is
+ * a live binding to a mutable Router, but it reads as though the routes after it are
+ * dead and invites someone to delete them.
+ */
 export default router
-
-// Public demo endpoint — no auth required
-router.get('/demo/events', async (_req, res) => {
-  try {
-    const db = (await import('../db')).AppDataSource
-    const events = await db.query(`
-      SELECT 
-        e.id,
-        e.method,
-        e.body,
-        e.headers,
-        e.source_ip,
-        e.status,
-        e.received_at
-      FROM events e
-      JOIN endpoints ep ON ep.id = e.endpoint_id
-      WHERE ep.public_token = 'demo-hookdrop-live-2024'
-      AND e.received_at > NOW() - INTERVAL '1 hour'
-      ORDER BY e.received_at DESC
-      LIMIT 20
-    `)
-    res.json({ events })
-  } catch (error) {
-    console.error('Demo events error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})

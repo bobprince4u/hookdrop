@@ -7,6 +7,14 @@ import {
 import { env } from '../../config/env'
 
 /**
+ * Stripe v22 ships `export = StripeConstructor`, where the imported binding is the
+ * callable constructor and the *instance* type lives in its namespace. Using bare
+ * `Stripe` in a type position is therefore a compile error ("cannot use namespace as
+ * a type"), which is what broke the build.
+ */
+type StripeClient = Stripe.Stripe
+
+/**
  * Stripe integration.
  *
  * Three defects fixed here (H-39):
@@ -21,9 +29,9 @@ import { env } from '../../config/env'
 export class StripeProvider implements PaymentProvider {
   name = 'stripe'
 
-  private client: Stripe | null = null
+  private client: StripeClient | null = null
 
-  private getStripe(): Stripe {
+  private getStripe(): StripeClient {
     const key = env.STRIPE_SECRET_KEY
     if (!key) throw new Error('STRIPE_SECRET_KEY not set')
     // Reuse the client: constructing one per call discards Stripe's connection pool.
@@ -157,5 +165,23 @@ export class StripeProvider implements PaymentProvider {
   getSubscriptionId(data: Record<string, unknown>): string {
     if (typeof data.subscription === 'string') return data.subscription
     return typeof data.id === 'string' ? data.id : ''
+  }
+
+  /**
+   * The intent row is written against the checkout session id returned by
+   * `initializePayment`, so `object.id` is the match for `checkout.session.completed`.
+   *
+   * `object.subscription` is included as a secondary candidate, but note what is *not*
+   * covered: a recurring `invoice.paid` renewal has no checkout session and therefore
+   * no intent row of its own. Renewals are not initiated through our endpoint, so the
+   * caller falls back to metadata for them — and because this integration does not set
+   * `subscription_data.metadata`, renewal invoices carry none. That is pre-existing
+   * behaviour, unchanged here, and recorded as a known gap rather than papered over.
+   */
+  getIntentReferences(data: Record<string, unknown>): string[] {
+    const candidates = [data.id, data.subscription]
+    return candidates.filter(
+      (value): value is string => typeof value === 'string' && value.length > 0
+    )
   }
 }

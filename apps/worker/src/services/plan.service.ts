@@ -1,14 +1,17 @@
 /**
- * Canonical plan catalogue.
+ * Canonical plan catalogue for the worker service.
  *
- * Before this file the same numbers were written out four times — in
- * `billing.controller.ts`, in `middleware/planLimits.ts`, in the ingestion
- * service, and again as an inline literal further down the same ingestion
- * function — with the inline copy already having drifted (H-26, H-36).
- * Everything server-side now reads from here.
+ * A copy of `apps/api/src/services/plan.service.ts` — the same convention this service's
+ * entity files already follow, since until Stage H's `packages/shared` exists there is no way
+ * for one workspace to import another's `src/`. Only this header comment differs between the
+ * three copies; **the exported surface is identical in all of them**, deliberately, because
+ * the retention job in this service and the quota check in the ingestion service must agree
+ * about what a plan entitles a user to. Two catalogues that disagreed would delete data the
+ * other believed it was still storing.
  *
- * Values match what the marketing page and billing page advertise; changing a
- * number here changes enforcement everywhere.
+ * `retention_hours` had no reader anywhere in the monorepo before this service acquired one
+ * (H-18): the numbers were published on the marketing page, promised in the welcome email,
+ * and enforced by nothing.
  */
 
 export type PlanId = 'free' | 'starter' | 'pro' | 'team'
@@ -16,13 +19,7 @@ export type PlanId = 'free' | 'starter' | 'pro' | 'team'
 export interface PlanDefinition {
   readonly id: PlanId
   readonly name: string
-  /**
-   * Price in the currency's MAJOR unit (naira, not kobo).
-   *
-   * The Paystack provider multiplies by 100 before charging, so treating this as
-   * kobo would under-charge by 100x. Webhook amount verification converts per
-   * provider rather than assuming a shared unit (H-06).
-   */
+  /** Price in the currency's MAJOR unit (naira, not kobo). */
   readonly amount: number
   readonly currency: 'NGN'
   readonly events: number
@@ -32,7 +29,6 @@ export interface PlanDefinition {
   readonly ai_enabled: boolean
 }
 
-/** Declared as a const tuple so `z.enum(PLAN_IDS)` stays type-safe. */
 export const PLAN_IDS = ['free', 'starter', 'pro', 'team'] as const satisfies
   readonly PlanId[]
 
@@ -85,13 +81,13 @@ export const isPlanId = (value: unknown): value is PlanId =>
 /**
  * The plan a user is actually entitled to right now.
  *
- * A paid `plan` column with a `plan_expires_at` in the past is not an entitlement.
- * Previously nothing in the request path consulted `plan_expires_at`, so expired
- * subscriptions kept full access indefinitely (H-14, H-29), and cancellation —
- * which nulls the column — was an upgrade to a never-expiring paid plan (H-30).
+ * A paid `plan` column with a `plan_expires_at` in the past is not an entitlement (H-14,
+ * H-29). A null `plan_expires_at` on a paid plan is treated as expired, not perpetual, so a
+ * cancellation cannot read as a never-expiring upgrade (H-30).
  *
- * A null `plan_expires_at` on a paid plan is treated as expired, not perpetual.
- * Grants that are meant to be open-ended must set an explicit future date.
+ * Note for the retention job specifically: it does **not** use this function. See
+ * `schedulers/retention.scheduler.ts` for why deleting data on the strength of a computed
+ * entitlement is the wrong side of an irreversible operation to be clever on.
  */
 export const resolveEffectivePlan = (user: {
   plan: string | null | undefined
@@ -103,9 +99,7 @@ export const resolveEffectivePlan = (user: {
     return PLANS.free
   }
 
-  const expiresAt = user.plan_expires_at
-    ? new Date(user.plan_expires_at)
-    : null
+  const expiresAt = user.plan_expires_at ? new Date(user.plan_expires_at) : null
 
   if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
     return PLANS.free
@@ -127,15 +121,7 @@ export const isPlanExpired = (user: {
 export const startOfCurrentMonthUtc = (now: Date = new Date()): Date =>
   new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0))
 
-/**
- * `YYYY-MM` in UTC — the cache-key suffix for the quota counter.
- *
- * Present in this copy as well as the ingestion service's, and that is the point: the
- * ingestion service increments the counter and the API reads it back for the dashboard's
- * usage figure. A key derived from a boundary computed differently in the two services would
- * have them reporting different totals for the same month, which is the H-21 defect one
- * layer up.
- */
+/** `YYYY-MM` in UTC — the cache-key suffix for the quota counter. */
 export const currentMonthKeyUtc = (now: Date = new Date()): string =>
   `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 

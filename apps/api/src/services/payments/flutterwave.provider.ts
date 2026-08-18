@@ -181,4 +181,11 @@ export class FlutterwaveProvider implements PaymentProvider {
   getSubscriptionId(data: Record<string, unknown>): string {
     return (data.tx_ref as string) || ''
   }
+
+  /** `tx_ref` is the reference this provider generated at initialization. */
+  getIntentReferences(data: Record<string, unknown>): string[] {
+    return typeof data.tx_ref === 'string' && data.tx_ref.length > 0
+      ? [data.tx_ref]
+      : []
+  }
 }

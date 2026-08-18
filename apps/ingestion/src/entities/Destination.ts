@@ -25,8 +25,18 @@ export class Destination {
    * HMAC-SHA256 signing key for outbound deliveries. Nullable: destinations
    * created before signing existed have none, and unsigned delivery stays
    * supported for them.
+   *
+   * `select: false` because three handlers returned this verbatim — the destination
+   * list, the create response, and `GET /endpoints/:id` through
+   * `relations: ['destinations']` — so a signing key was readable from any of them,
+   * and every future handler would have leaked it by default too (H-11). Excluding
+   * it at the column is what makes that safe by default rather than by review.
+   *
+   * The one consumer that legitimately needs the key is the delivery signer in the
+   * worker, which opts back in with an explicit `addSelect`. If you add another,
+   * opt in the same way — do not remove this.
    */
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, select: false })
   secret!: string | null
 
   @Column({ type: 'boolean', default: true })

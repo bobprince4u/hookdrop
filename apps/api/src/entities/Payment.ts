@@ -7,7 +7,16 @@ import {
   Unique,
 } from 'typeorm'
 
-export type PaymentStatus = 'succeeded' | 'rejected' | 'ignored'
+/**
+ * `initiated` is written by `initializePayment` before the user is redirected to the
+ * provider; the other three are webhook outcomes.
+ *
+ * The intent row is what makes the webhook authoritative rather than trusting
+ * provider metadata: it records, server-side, which user asked for which plan at what
+ * price, so the webhook resolves the grant from our own row instead of from a
+ * `metadata.plan` field that round-tripped through the client (H-06).
+ */
+export type PaymentStatus = 'initiated' | 'succeeded' | 'rejected' | 'ignored'
 
 /**
  * Append-only ledger of every payment webhook the API accepted or rejected.

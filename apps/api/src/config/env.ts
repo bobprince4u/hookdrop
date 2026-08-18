@@ -182,9 +182,23 @@ const envSchema = z
       })
     }
 
-    // A configured provider with no way to verify webhooks would have to either
-    // fail closed on every callback or trust unsigned input. Refuse at boot.
-    if (env.FLUTTERWAVE_SECRET_KEY && !env.FLUTTERWAVE_SECRET_HASH) {
+    /**
+     * A configured provider with no way to verify webhooks can only ever fail closed,
+     * and that is exactly what both providers do — `flutterwave.provider.ts:82` and
+     * `stripe.provider.ts:98` return `valid: false` when the secret is absent, so an
+     * unverifiable callback is rejected, never trusted.
+     *
+     * In production that silent rejection is worse than refusing to boot: payments
+     * would be taken and never granted. So it stays a hard error there. In development
+     * it must not be — a developer holding a test provider key cannot receive callbacks
+     * locally anyway, and aborting boot over it made the service unstartable. Warned
+     * once after parsing instead.
+     */
+    if (
+      IS_PRODUCTION &&
+      env.FLUTTERWAVE_SECRET_KEY &&
+      !env.FLUTTERWAVE_SECRET_HASH
+    ) {
       ctx.addIssue({
         code: 'custom',
         message:
@@ -192,7 +206,7 @@ const envSchema = z
         path: ['FLUTTERWAVE_SECRET_HASH'],
       })
     }
-    if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
+    if (IS_PRODUCTION && env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
       ctx.addIssue({
         code: 'custom',
         message:
@@ -241,6 +255,29 @@ const parseEnv = (): ApiEnv => {
 
 export const env: ApiEnv = parseEnv()
 
+/**
+ * Non-fatal configuration warnings, emitted once at import.
+ *
+ * Only reachable outside production, where the equivalent checks in `superRefine`
+ * are hard errors. Names only, never values (H-48).
+ */
+const warnUnverifiableWebhooks = (): void => {
+  const missing: string[] = []
+  if (env.FLUTTERWAVE_SECRET_KEY && !env.FLUTTERWAVE_SECRET_HASH) {
+    missing.push('FLUTTERWAVE_SECRET_HASH')
+  }
+  if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
+    missing.push('STRIPE_WEBHOOK_SECRET')
+  }
+  if (missing.length > 0) {
+    console.warn(
+      `Config warning: ${missing.join(', ')} not set. Webhooks for the affected provider will be rejected, so payments cannot be confirmed until it is configured.`
+    )
+  }
+}
+
+warnUnverifiableWebhooks()
+
 export const isProduction = env.NODE_ENV === 'production'
 export const isTest = env.NODE_ENV === 'test'
 
@@ -248,11 +285,25 @@ export const isTest = env.NODE_ENV === 'test'
 export const redisTlsOptions = (): { tls?: Record<string, never> } =>
   env.REDIS_URL.startsWith('rediss://') ? { tls: {} } : {}
 
-/** Emails allowed to reach admin-only routes, lower-cased (H-07). */
+/**
+ * Emails allowed to reach admin-only routes, lower-cased (H-07).
+ *
+ * `ADMIN_EMAIL` (singular) is read as a fallback because it was the original variable
+ * and is still the one deployed: `routes/index.ts` compares against raw
+ * `process.env.ADMIN_EMAIL` and `email.service.ts` reads `env.ADMIN_EMAIL`, while
+ * `requireAdmin` reads only `ADMIN_EMAILS`. That three-way split is why every admin
+ * route 403s for everyone today. Accepting both here makes the readers agree without
+ * requiring a config change first; `routes/index.ts` is switched over to `requireAdmin`
+ * in the same pass (H-31).
+ *
+ * Both variables accept a comma-separated list, so a deployment that sets either one
+ * — or both — resolves to the same allow-list.
+ */
 export const adminEmails = (): ReadonlySet<string> =>
   new Set(
-    (env.ADMIN_EMAILS ?? '')
-      .split(',')
+    [env.ADMIN_EMAILS, env.ADMIN_EMAIL]
+      .filter((value): value is string => Boolean(value))
+      .flatMap((value) => value.split(','))
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean)
   )

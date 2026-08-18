@@ -1,5 +1,5 @@
 import { Resend } from 'resend'
-import { env } from '../config/env'
+import { env, adminEmails } from '../config/env'
 import { escapeHtml, safeUrl } from './html.util'
 
 /**
@@ -263,9 +263,15 @@ export const sendDay3UpgradeEmail = async (
  * Feedback relay.
  *
  * The call site passed `req.user.id` where `userName` was expected, so every
- * feedback email was subject-lined with a uuid (H-23). The recipient is now
- * `ADMIN_EMAIL` with no hardcoded personal fallback — if it is unset, the send is
- * skipped and the caller is told, rather than mailing a developer's inbox.
+ * feedback email was subject-lined with a uuid (H-23). The recipient comes from the
+ * same `adminEmails()` allow-list `requireAdmin` uses, with no hardcoded personal
+ * fallback — if it is unset, the send is skipped and the caller is told, rather than
+ * mailing a developer's inbox.
+ *
+ * Reading the allow-list rather than `env.ADMIN_EMAIL` directly is what finally makes
+ * the three admin-email readers agree. This module was the last one still consulting
+ * its own variable, so an operator who set only `ADMIN_EMAILS` got working admin
+ * routes and silently undelivered feedback (H-31).
  */
 export const sendFeedbackEmail = async (
   userEmail: string,
@@ -273,15 +279,19 @@ export const sendFeedbackEmail = async (
   type: string,
   message: string
 ): Promise<boolean> => {
-  const recipient = env.ADMIN_EMAIL
+  const [recipient] = [...adminEmails()]
   if (!recipient) {
-    console.warn('ADMIN_EMAIL is not configured; feedback email not sent')
+    console.warn(
+      'Neither ADMIN_EMAILS nor ADMIN_EMAIL is configured; feedback email not sent'
+    )
     return false
   }
 
   await send({
     to: recipient,
-    subject: `[${escapeHtml(type).toUpperCase()}] Feedback from ${userName.slice(0, 60)}`,
+    // CR/LF stripped before it reaches a header field. The body escapes for HTML;
+    // a subject is not HTML, so the control that matters here is header injection.
+    subject: `[${type.replace(/[\r\n]/g, ' ').toUpperCase()}] Feedback from ${userName.replace(/[\r\n]/g, ' ').slice(0, 60)}`,
     replyTo: userEmail,
     html: shell(`
       <h1 style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">

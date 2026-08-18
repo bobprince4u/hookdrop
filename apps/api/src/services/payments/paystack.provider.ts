@@ -164,4 +164,14 @@ export class PaystackProvider implements PaymentProvider {
   getSubscriptionId(data: Record<string, unknown>): string {
     return (data.reference as string) || ''
   }
+
+  /**
+   * Paystack echoes the reference we supplied at initialization, so the intent row is
+   * found under that same value.
+   */
+  getIntentReferences(data: Record<string, unknown>): string[] {
+    return typeof data.reference === 'string' && data.reference.length > 0
+      ? [data.reference]
+      : []
+  }
 }

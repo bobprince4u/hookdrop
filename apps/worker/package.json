@@ -17,7 +17,8 @@
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.9.4",
-    "typeorm": "^0.3.31"
+    "typeorm": "^0.3.31",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

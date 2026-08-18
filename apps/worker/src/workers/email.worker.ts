@@ -1,33 +1,62 @@
 import { Worker } from 'bullmq'
 import { redis } from '../queue'
-import { sendDay1TipsEmail, sendDay3UpgradeEmail } from '../services/email.service'
+import { env } from '../config/env'
+import {
+  sendDay1TipsEmail,
+  sendDay3UpgradeEmail,
+} from '../services/email.service'
 
-export const startEmailWorker = () => {
+export const startEmailWorker = (): Worker => {
   const worker = new Worker(
     'email',
     async (job) => {
-      const { email, name } = job.data
+      const { email, name } = job.data as { email?: string; name?: string }
 
-      if (job.name === 'day1-tips') {
-        await sendDay1TipsEmail(email, name)
-        console.log(`Day 1 tips sent to ${email}`)
+      /**
+       * Job data is validated rather than trusted. An `email` job with a missing address
+       * previously reached Resend as `to: undefined`, which fails, retries three more
+       * times, and reports a transport error instead of the actual problem.
+       */
+      if (typeof email !== 'string' || email.length === 0) {
+        throw new Error(`Email job ${job.id} has no recipient address`)
       }
+      const recipientName = typeof name === 'string' ? name : ''
 
-      if (job.name === 'day3-upgrade') {
-        await sendDay3UpgradeEmail(email, name)
-        console.log(`Day 3 upgrade email sent to ${email}`)
+      switch (job.name) {
+        case 'day1-tips':
+          await sendDay1TipsEmail(email, recipientName)
+          break
+        case 'day3-upgrade':
+          await sendDay3UpgradeEmail(email, recipientName)
+          break
+        default:
+          /**
+           * Unknown job names used to be silently discarded — both `if` blocks failed to
+           * match, the processor returned normally, and BullMQ marked the job complete.
+           * Failing loudly is what surfaces a producer/consumer mismatch.
+           */
+          throw new Error(`Unknown email job name: ${job.name}`)
       }
     },
     {
       connection: redis,
-      stalledInterval: 60000,    // check stalled jobs every 60s instead of default 5s
+      concurrency: env.EMAIL_CONCURRENCY,
+      // Check stalled jobs every 60s rather than the 5s default.
+      stalledInterval: 60_000,
       maxStalledCount: 2,
     }
   )
 
   worker.on('failed', (job, err) => {
-    console.error(`Email job ${job?.id} failed:`, err)
+    // Message only: the error object would carry the full Resend request, API key included.
+    console.error(`Email job ${job?.id} (${job?.name}) failed: ${err.message}`)
   })
 
-  console.log('Email worker started')
+  worker.on('error', (err) => {
+    console.error('Email worker error:', err.message)
+  })
+
+  console.log(`Email worker started (concurrency ${env.EMAIL_CONCURRENCY})`)
+
+  return worker
 }

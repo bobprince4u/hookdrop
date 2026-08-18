@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import { PLAN_IDS } from '../services/plan.service'
+import { literalUrlRejectionReason } from '../services/url-guard'
 
 /**
  * Request validation schemas.
  *
  * Every bound here exists because the previous code had none: pagination was
  * unclamped (H-20), AI parameters flowed straight into a `varchar(50)` cache key
- * and into a model prompt (H-22), destination URLs were accepted verbatim (H-19),
+ * and into a model prompt (H-22), destination URLs were accepted verbatim (H-02),
  * and registration accepted any string as a password (H-25).
  *
  * Existing query-parameter names are preserved so no client has to change.
@@ -161,14 +162,41 @@ export const destinationParamsSchema = z.object({
 
 export const createEndpointSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120),
-  description: z.string().trim().max(500).optional(),
 })
 
+/**
+ * Free-form endpoint metadata.
+ *
+ * The old update handler assigned `req.body.metadata` straight onto the entity, which
+ * is why mass assignment was live on that path (H-32): the column is `jsonb`, so
+ * anything at all could be stored, at any size. Setting metadata is intentional
+ * product behaviour though, so this keeps the capability and bounds it instead of
+ * removing it — a jsonb column with no size limit is a cheap way to fill a disk.
+ */
+export const endpointMetadataSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => Object.keys(value).length <= 50, {
+    message: 'metadata is limited to 50 keys',
+  })
+  .refine(
+    (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= 8_192,
+    { message: 'metadata is limited to 8 KB' }
+  )
+
+/**
+ * Unknown keys are stripped rather than rejected, and the handler assigns only the
+ * three fields below by name. Two independent barriers, because the failure being
+ * prevented — a request quietly setting `user_id` or `public_token` — is a tenancy
+ * break, not a validation nicety.
+ *
+ * `description` is deliberately absent: no such column exists on `endpoints`, so
+ * accepting the field would have stored nothing while returning 200.
+ */
 export const updateEndpointSchema = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
-    description: z.string().trim().max(500).optional(),
     is_active: z.boolean().optional(),
+    metadata: endpointMetadataSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',
@@ -177,27 +205,33 @@ export const updateEndpointSchema = z
 /**
  * Destination URL shape check.
  *
- * This is only the syntactic half of SSRF defence — it rejects non-HTTP schemes and
- * obvious loopback/metadata hosts at write time. The authoritative check happens in
- * the worker at delivery time, because DNS can be repointed after the destination is
- * saved and because redirects have to be re-validated per hop (H-19).
+ * This is only the syntactic half of SSRF defence. It rejects non-HTTP schemes, URLs
+ * carrying credentials, private and reserved address *literals*, and the handful of
+ * local hostnames users paste by accident.
+ *
+ * The authoritative check is `assertPublicUrl` in the worker, immediately before the
+ * connection: DNS can be repointed after the destination is saved, and redirects have to
+ * be re-validated per hop, so no write-time check can be the control (H-02).
+ *
+ * The previous version of this comment described exactly the behaviour above while the
+ * code below tested `url.protocol` and nothing else — `http://localhost/` and
+ * `http://169.254.169.254/` both passed it — and the worker it deferred to contained no
+ * SSRF code at all. The rules now live in `services/url-guard.ts`, shared with the
+ * runtime check so the two cannot disagree about what "private" means.
  */
 export const destinationUrlSchema = z
   .string()
   .trim()
   .min(1, 'URL is required')
   .max(2048)
-  .refine(
-    (value) => {
-      try {
-        const url = new URL(value)
-        return url.protocol === 'http:' || url.protocol === 'https:'
-      } catch {
-        return false
-      }
-    },
-    { message: 'URL must be a valid http(s) URL' }
-  )
+  .superRefine((value, ctx) => {
+    const reason = literalUrlRejectionReason(value)
+    if (reason) {
+      // The specific reason is surfaced: a user who pasted a localhost URL should be
+      // told that, not given a generic "invalid URL".
+      ctx.addIssue({ code: 'custom', message: reason })
+    }
+  })
 
 export const createDestinationSchema = z.object({
   url: destinationUrlSchema,

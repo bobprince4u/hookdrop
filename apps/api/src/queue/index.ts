@@ -27,7 +27,7 @@ redis.on('error', (error: Error) => {
  * Bounded retention for every queue.
  *
  * Nothing previously removed completed or failed jobs, so Redis grew without
- * limit — most visibly on the `ai` queue, which had no consumer at all (H-04).
+ * limit (H-38).
  */
 export const defaultJobOptions: JobsOptions = {
   removeOnComplete: { count: 1000, age: 24 * 60 * 60 },
@@ -39,21 +39,24 @@ export const deliveryQueue = new Queue('delivery', {
   defaultJobOptions,
 })
 
-export const aiQueue = new Queue('ai', {
-  connection: redis,
-  defaultJobOptions,
-})
-
+/**
+ * The `ai` queue registration is gone (H-04).
+ *
+ * Nothing anywhere consumed it — there was no `ai` worker in `apps/worker` — while
+ * `apps/ingestion` enqueued a job to it for every single inbound event. AI insights are
+ * generated on demand and cached by `getOrCreateInsight`, so the queue was redundant
+ * rather than merely unconsumed, and removing the producer is the honest fix.
+ *
+ * Jobs already sitting in Redis from before this change are not touched here. Draining
+ * them is an operational step, documented in `docs/hardening.md`, because deleting a queue
+ * is destructive and belongs in the operator's hands, not in a module that runs on boot.
+ */
 export const emailQueue = new Queue('email', {
   connection: redis,
   defaultJobOptions,
 })
 
 export const closeQueues = async (): Promise<void> => {
-  await Promise.allSettled([
-    deliveryQueue.close(),
-    aiQueue.close(),
-    emailQueue.close(),
-  ])
+  await Promise.allSettled([deliveryQueue.close(), emailQueue.close()])
   await redis.quit()
 }
