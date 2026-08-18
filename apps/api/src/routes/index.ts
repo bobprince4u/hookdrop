@@ -2,6 +2,7 @@ import { Router } from 'express'
 
 import {
   authenticate,
+  denyApiKeyAuth,
   loadCurrentUser,
   requireAdmin,
   requirePlan,
@@ -62,12 +63,19 @@ import {
   listAdminUsers,
   upgradeUser,
 } from '../controllers/admin.controller'
+import {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+} from '../controllers/apiKeys.controller'
 import { getDemoEvents, getRates } from '../controllers/public.controller'
 import { submitFeedback } from '../controllers/feedback.controller'
 
 import {
   adminUpgradeSchema,
   adminUserQuerySchema,
+  apiKeyParamsSchema,
+  createApiKeySchema,
   createDestinationSchema,
   createEndpointSchema,
   destinationParamsSchema,
@@ -109,8 +117,11 @@ import {
  * 5. `requirePlan` / `requireAdmin` — authorization, always **before** the body is
  *    read. The old `/admin/upgrade-user` destructured the body and resolved
  *    repositories first and only then compared emails (H-33).
- * 6. `validateBody` / `validateQuery`.
- * 7. handler.
+ * 6. `denyApiKeyAuth` — on the routes where holding an API key must not be sufficient:
+ *    session revocation, key management, payment initiation, plan grants. Mounted after
+ *    `authenticate`, which is what records the credential type (H-27).
+ * 7. `validateBody` / `validateQuery`.
+ * 8. handler.
  *
  * This deviates from the order sketched in the plan, which put `validateParams` ahead
  * of `authenticate`: a 400 describing the expected parameter format is a response an
@@ -166,7 +177,41 @@ router.post(
 router.post('/auth/logout', logout)
 
 /** Revokes every session for the account, so it must prove which account that is. */
-router.post('/auth/logout-all', authenticate, logoutAll)
+router.post('/auth/logout-all', authenticate, denyApiKeyAuth, logoutAll)
+
+/* -------------------------------------------------------------------------- */
+/* API keys                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Programmatic credentials (H-27).
+ *
+ * `denyApiKeyAuth` on all three: a key must not be able to issue another key, revoke a
+ * sibling, or enumerate the account's credentials. Without it, one leaked key stops being a
+ * revocable loss of API access and becomes persistent access that survives revoking it —
+ * whoever holds it just mints a replacement first.
+ *
+ * No dedicated limiter. Creation is bounded by the active-key cap the service enforces, and
+ * the app-level `apiRateLimiter` already covers the create-then-revoke loop that would
+ * otherwise get around it.
+ */
+router.post(
+  '/keys',
+  authenticate,
+  denyApiKeyAuth,
+  validateBody(createApiKeySchema),
+  createApiKey
+)
+
+router.get('/keys', authenticate, denyApiKeyAuth, listApiKeys)
+
+router.delete(
+  '/keys/:id',
+  authenticate,
+  denyApiKeyAuth,
+  validateParams(apiKeyParamsSchema),
+  revokeApiKey
+)
 
 /* -------------------------------------------------------------------------- */
 /* Endpoints                                                                  */
@@ -324,9 +369,15 @@ router.get('/billing/rates', publicRateLimiter, getRates)
  */
 router.get('/billing/current', authenticate, getCurrentPlan)
 
+/**
+ * `denyApiKeyAuth`: starting a payment is a money-moving operation, and it is initiated by a
+ * person choosing a plan, never by an integration. A key that could do this could redirect a
+ * customer's card into a checkout they did not ask for (H-27).
+ */
 router.post(
   '/billing/initialize',
   authenticate,
+  denyApiKeyAuth,
   validateBody(initializePaymentSchema),
   initializePayment
 )
@@ -361,10 +412,17 @@ router.get(
   listAdminUsers
 )
 
+/**
+ * `denyApiKeyAuth` on the mutation only. Granting plan time is giving away paid service, so it
+ * requires an interactive admin session; the two read-only admin routes above are content with
+ * either credential, since a key that can read the admin dashboard can already read everything
+ * the account owns.
+ */
 router.post(
   '/admin/upgrade-user',
   authenticate,
   requireAdmin,
+  denyApiKeyAuth,
   validateBody(adminUpgradeSchema),
   upgradeUser
 )

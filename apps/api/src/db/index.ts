@@ -7,6 +7,7 @@ import { Delivery } from '../entities/Delivery'
 import { AiInsight } from '../entities/AiInsight'
 import { RefreshToken } from '../entities/RefreshToken'
 import { Payment } from '../entities/Payment'
+import { ApiKey } from '../entities/ApiKey'
 import { env, isProduction } from '../config/env'
 
 /**
@@ -28,6 +29,7 @@ export const AppDataSource = new DataSource({
     AiInsight,
     RefreshToken,
     Payment,
+    ApiKey,
   ],
   migrations: [],
   subscribers: [],

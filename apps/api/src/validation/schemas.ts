@@ -244,3 +244,23 @@ export const demoFireSchema = z
     (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= 16_384,
     { message: 'Demo payloads are limited to 16 KB' }
   )
+
+/**
+ * API-key creation (H-27).
+ *
+ * `name` is capped at the `varchar(100)` the column actually holds, so a long label is
+ * rejected with a 400 rather than truncated by Postgres or failing as a 500.
+ *
+ * `expires_in_days` is optional because a key with no expiry is a legitimate choice for a
+ * long-lived server integration, and forcing a value would only produce a wrong one. The
+ * ceiling matches `adminUpgradeSchema.days` for the same reason: a mistyped expiry should not
+ * create a credential that outlives anyone's memory of issuing it. The service enforces the
+ * same bound, since it can also be called from outside a validated route.
+ */
+export const createApiKeySchema = z.object({
+  name: z.string().trim().min(1, 'A name is required').max(100),
+  expires_in_days: z.coerce.number().int().min(1).max(730).optional(),
+})
+export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>
+
+export const apiKeyParamsSchema = z.object({ id: uuidSchema })

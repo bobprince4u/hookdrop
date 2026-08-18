@@ -110,6 +110,18 @@ const envSchema = z
     ACCESS_TOKEN_TTL: z.string().trim().min(1).default('15m'),
     REFRESH_TOKEN_TTL: z.string().trim().min(1).default('30d'),
 
+    /**
+     * Pepper for API-key hashes (H-27). Optional, deliberately.
+     *
+     * When unset, `apiKey.service.ts` derives a pepper from `REFRESH_TOKEN_SECRET` with a
+     * domain-separation label, so the feature works out of the box and no deployment breaks
+     * on boot for a capability it may not use. The cost of leaving it unset is a coupling
+     * worth knowing about: rotating `REFRESH_TOKEN_SECRET` after an incident would then
+     * invalidate every customer's API key along with every session. Setting this variable
+     * decouples the two. Rotating *this* value revokes every API key.
+     */
+    API_KEY_SECRET: optionalNonEmpty,
+
     FRONTEND_URL: optionalNonEmpty,
     EXTRA_ORIGINS: optionalNonEmpty,
     INGESTION_URL: optionalNonEmpty,
@@ -277,6 +289,23 @@ const warnUnverifiableWebhooks = (): void => {
 }
 
 warnUnverifiableWebhooks()
+
+/**
+ * API keys are usable without `API_KEY_SECRET`, but the derived-pepper fallback ties them to
+ * the session secret. Warned rather than rejected: refusing to boot over this would break
+ * deployments that never issue an API key, and the safe default already works (H-27).
+ */
+const warnDerivedApiKeyPepper = (): void => {
+  if (IS_PRODUCTION && !env.API_KEY_SECRET) {
+    console.warn(
+      'Config warning: API_KEY_SECRET not set. API-key hashes are peppered with a value ' +
+        'derived from REFRESH_TOKEN_SECRET, so rotating that secret would revoke every ' +
+        'customer API key as well as every session. Set API_KEY_SECRET to decouple them.'
+    )
+  }
+}
+
+warnDerivedApiKeyPepper()
 
 export const isProduction = env.NODE_ENV === 'production'
 export const isTest = env.NODE_ENV === 'test'
