@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { api } from '@/lib/api'
+import { api, describeApiError } from '@/lib/api'
 import Link from 'next/link'
 import { EndpointSkeleton } from '@/components/LoadingSkeleton'
 
