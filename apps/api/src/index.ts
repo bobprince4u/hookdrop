@@ -3,40 +3,86 @@ import * as Sentry from '@sentry/node'
 import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
+import { createAdapter } from '@socket.io/redis-adapter'
 import helmet from 'helmet'
-import dotenv from 'dotenv'
+import cors from 'cors'
+import cookieParser from 'cookie-parser'
+import { env, isProduction } from './config/env'
 import { initDB } from './db'
 import router from './routes'
+import { redis, closeQueues } from './queue'
+import { verifyAccessToken } from './services/token.service'
+import { apiRateLimiter } from './middleware/rateLimiter'
+import { AppDataSource } from './db'
+import { Endpoint } from './entities/Endpoint'
+import { handleWebhook } from './controllers/billing.controller'
 
-dotenv.config({ path: '../../.env' })
-
+/**
+ * Config is validated at import time by `./config/env`, which exits the process if
+ * a required variable is missing. Nothing below needs to defend against undefined.
+ */
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV || 'development',
-  tracesSampleRate: 1.0,
+  dsn: env.SENTRY_DSN,
+  environment: env.NODE_ENV,
+  // 1.0 in production traced every request (H-43).
+  tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
 })
 
 const app = express()
 const httpServer = createServer(app)
-const PORT = process.env.PORT || process.env.API_PORT || 3003
 
-// Build allowed origins from env — supports multiple comma-separated URLs
-const allowedOrigins = [
-  'http://localhost:3004',
-  'https://hookdropi.vercel.app',
-  'https://hookdropi.qzz.io',
-  process.env.FRONTEND_URL,
-  ...(process.env.EXTRA_ORIGINS ? process.env.EXTRA_ORIGINS.split(',') : []),
-].filter(Boolean) as string[]
+/**
+ * Origin allow-list.
+ *
+ * The two hardcoded production hostnames are kept so an existing deployment does
+ * not break, but they are no longer the only source: `FRONTEND_URL` is required in
+ * production and `EXTRA_ORIGINS` remains available for previews.
+ */
+const allowedOrigins = new Set(
+  [
+    'http://localhost:3004',
+    'https://hookdropi.vercel.app',
+    'https://hookdropi.qzz.io',
+    env.FRONTEND_URL,
+    ...(env.EXTRA_ORIGINS?.split(',') ?? []),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+)
 
-console.log('Allowed origins:', allowedOrigins)
+/**
+ * `trust proxy` must reflect the real number of proxies in front of the app.
+ *
+ * Without it, `req.ip` is the proxy's address, so every rate limiter buckets the
+ * entire internet into one key. With a blanket `true` it is whatever the client
+ * puts in `X-Forwarded-For`, so every limiter is trivially bypassed. A hop count
+ * is the only setting that is correct in both directions (H-07).
+ */
+app.set('trust proxy', env.TRUST_PROXY_HOPS)
 
+/**
+ * Shared adapter so a room emit from one process reaches clients connected to
+ * another.
+ *
+ * The ingestion service runs its own Socket.IO server and emitted `new_event` on
+ * it, while the dashboard connects to this one — so live events never arrived. Both
+ * servers now publish through Redis (H-12).
+ */
 export const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true)
+        return
+      }
+      callback(new Error('Origin not allowed'))
+    },
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  adapter: createAdapter(redis, redis.duplicate()),
+  // Engine.IO's default is 1MB; events are relayed, not uploaded.
+  maxHttpBufferSize: 1e6,
 })
 
 app.use(
@@ -45,52 +91,180 @@ app.use(
   })
 )
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+/**
+ * Single CORS implementation.
+ *
+ * The hand-rolled middleware it replaces echoed `Access-Control-Allow-Origin: *`
+ * together with `Allow-Credentials: true` whenever the request had no `Origin`
+ * header, and answered every preflight with 200 regardless of origin (H-41).
+ */
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // No Origin header: same-origin, curl, or a server-to-server call. Allowed,
+      // but without an `Access-Control-Allow-Origin` echo.
+      if (!origin) {
+        callback(null, false)
+        return
+      }
+      callback(null, allowedOrigins.has(origin))
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 600,
+  })
+)
 
-// CORS middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin as string
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*')
-  }
-  res.header(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PATCH,PUT,DELETE,OPTIONS'
-  )
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  res.header('Access-Control-Allow-Credentials', 'true')
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200)
-    return
-  }
-  next()
-})
+/**
+ * The payment webhook is mounted before the JSON parser and receives the raw
+ * bytes, because signature verification runs over exactly what the provider sent.
+ * Re-serialising a parsed object changes key order and whitespace and can never
+ * reproduce the signature (H-05).
+ */
+app.post(
+  '/api/billing/webhook',
+  express.raw({ type: '*/*', limit: '512kb' }),
+  handleWebhook
+)
+
+// Bounded bodies everywhere else. The default 100kb was already implicit; making
+// it explicit documents the limit and keeps urlencoded from being unbounded (H-32).
+app.use(express.json({ limit: '256kb' }))
+app.use(express.urlencoded({ extended: true, limit: '256kb' }))
+app.use(cookieParser())
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'api', env: process.env.NODE_ENV })
+  res.json({ status: 'ok', service: 'api' })
 })
 
-app.use('/api', router)
+// Coarse ceiling for the whole API; per-route limiters are tighter.
+app.use('/api', apiRateLimiter, router)
 
 app.use(Sentry.expressErrorHandler())
 
+/**
+ * Fallback error handler.
+ *
+ * Express 5 forwards rejected promises here. Without it, a thrown error produced a
+ * default HTML response carrying the stack trace.
+ */
+app.use(
+  (
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error('Unhandled API error:', error)
+    if (res.headersSent) return
+    res.status(500).json({ error: 'Internal server error' })
+  }
+)
+
+/**
+ * Socket.IO authentication.
+ *
+ * `join` used to accept any string and put the caller in that room. Endpoint
+ * public tokens are the ingest URL's only credential, so knowing or guessing one
+ * gave a live feed of another tenant's webhook traffic — including headers and
+ * bodies — with no authentication at all (H-13).
+ *
+ * Sockets may connect anonymously (the marketing demo does), but an anonymous
+ * socket can only ever join the demo room.
+ */
+io.use((socket, next) => {
+  const raw = socket.handshake.auth?.token
+  const token = typeof raw === 'string' ? raw : undefined
+
+  if (!token) {
+    socket.data.userId = null
+    next()
+    return
+  }
+
+  const payload = verifyAccessToken(token)
+  if (!payload) {
+    next(new Error('unauthorized'))
+    return
+  }
+
+  socket.data.userId = payload.id
+  next()
+})
+
 io.on('connection', (socket) => {
-  console.log(`Client connected: ${socket.id}`)
-  socket.on('join', (token: string) => {
-    socket.join(token)
-    console.log(`Client ${socket.id} joined room: ${token}`)
-  })
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`)
+  socket.on('join', async (token: unknown) => {
+    if (typeof token !== 'string' || token.length === 0 || token.length > 100) {
+      socket.emit('join_error', { error: 'Invalid room' })
+      return
+    }
+
+    // The public demo feed stays public — that is intentional product behaviour.
+    if (token === env.DEMO_PUBLIC_TOKEN) {
+      await socket.join(token)
+      socket.emit('joined', { ok: true })
+      return
+    }
+
+    const userId = socket.data.userId as string | null
+    if (!userId) {
+      socket.emit('join_error', { error: 'Authentication required' })
+      return
+    }
+
+    try {
+      const endpoint = await AppDataSource.getRepository(Endpoint).findOne({
+        where: { public_token: token, user_id: userId },
+        select: { id: true },
+      })
+
+      if (!endpoint) {
+        // Same answer for "not yours" and "does not exist".
+        socket.emit('join_error', { error: 'Endpoint not found' })
+        return
+      }
+
+      await socket.join(token)
+      socket.emit('joined', { ok: true })
+    } catch (error) {
+      console.error('Socket join error:', error)
+      socket.emit('join_error', { error: 'Could not join' })
+    }
   })
 })
 
+const shutdown = async (signal: string): Promise<void> => {
+  console.log(`Received ${signal}, shutting down`)
+  io.close()
+  httpServer.close()
+  await closeQueues().catch((error) =>
+    console.error('Error closing queues:', error)
+  )
+  if (AppDataSource.isInitialized) {
+    await AppDataSource.destroy().catch((error) =>
+      console.error('Error closing database:', error)
+    )
+  }
+  process.exit(0)
+}
+
 const start = async (): Promise<void> => {
   await initDB()
-  httpServer.listen(PORT, () => {
-    console.log(`API service running on port ${PORT}`)
+  httpServer.listen(env.PORT, () => {
+    console.log(
+      `API service running on port ${env.PORT} (${env.NODE_ENV}, ${allowedOrigins.size} allowed origins)`
+    )
   })
 }
 
-start()
+process.on('SIGTERM', () => void shutdown('SIGTERM'))
+process.on('SIGINT', () => void shutdown('SIGINT'))
+
+start().catch((error) => {
+  console.error('Failed to start API service:', error)
+  process.exit(1)
+})
+
+// `isProduction` is re-exported for modules that need it without importing config.
+export { isProduction }

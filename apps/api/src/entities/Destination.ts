@@ -21,8 +21,13 @@ export class Destination {
   @Column({ type: 'varchar', length: 2048 })
   url!: string
 
+  /**
+   * HMAC-SHA256 signing key for outbound deliveries. Nullable: destinations
+   * created before signing existed have none, and unsigned delivery stays
+   * supported for them.
+   */
   @Column({ type: 'varchar', length: 255, nullable: true })
-  secret!: string
+  secret!: string | null
 
   @Column({ type: 'boolean', default: true })
   is_active!: boolean
@@ -30,7 +35,9 @@ export class Destination {
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date
 
-  @ManyToOne(() => Endpoint, (endpoint) => endpoint.destinations, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Endpoint, (endpoint) => endpoint.destinations, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'endpoint_id' })
   endpoint!: Endpoint
 

@@ -19,7 +19,7 @@
     "reflect-metadata": "^0.2.2",
     "resend": "^6.10.0",
     "socket.io": "^4.8.3",
-    "typeorm": "^0.3.28",
+    "typeorm": "^0.3.31",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
