@@ -109,6 +109,19 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {error && (
+        <div
+          className="text-sm px-4 py-3 rounded-xl border mb-4"
+          style={{
+            background: 'rgba(239,68,68,0.1)',
+            borderColor: 'rgba(239,68,68,0.2)',
+            color: '#f87171',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
       {showForm && (
         <form
           onSubmit={createEndpoint}
