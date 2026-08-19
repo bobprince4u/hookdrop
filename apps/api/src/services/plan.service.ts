@@ -2,10 +2,10 @@
  * Canonical plan catalogue.
  *
  * Before this file the same numbers were written out four times — in
- * `billing.controller.ts`, in `middleware/planLimits.ts`, in the ingestion
- * service, and again as an inline literal further down the same ingestion
- * function — with the inline copy already having drifted (H-26, H-36).
- * Everything server-side now reads from here.
+ * `billing.controller.ts`, in `middleware/planLimits.ts` (since deleted — it was also
+ * fail-open, calling `next()` from its own error handler), in the ingestion service, and
+ * again as an inline literal further down the same ingestion function — with the inline
+ * copy already having drifted (H-26, H-36). Everything server-side now reads from here.
  *
  * Values match what the marketing page and billing page advertise; changing a
  * number here changes enforcement everywhere.

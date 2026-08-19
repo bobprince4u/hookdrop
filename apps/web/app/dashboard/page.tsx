@@ -46,7 +46,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void fetchEndpoints()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Mount only, deliberately. `fetchEndpoints` is redeclared every render, so listing it
+    // here would refetch on each one. The suppression this replaced no longer matched a
+    // rule that fires, and an unused directive hides whether the empty array was a choice.
   }, [])
 
   const createEndpoint = async (e: React.FormEvent) => {
