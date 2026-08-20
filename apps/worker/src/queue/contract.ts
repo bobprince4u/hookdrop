@@ -10,10 +10,10 @@ import type { PgBoss, Db, Queue } from 'pg-boss'
  * already use — until a shared package exists there is no way for one workspace to
  * import another's `src/`, and each service is built and deployed on its own
  * (`railway.json` per app, `tsc` with `rootDir: src`). The three copies are byte
- * identical on purpose; `scripts/check-queue-contract.ts` fails the build if they drift,
- * because a producer and a consumer that disagree about a queue name or a retry limit
- * fail silently — the job is written and nothing ever reads it, which is exactly the
- * H-04/H-09 shape of defect.
+ * identical on purpose; `npm run check:duplicates` compares them and exits non-zero if
+ * they drift, because a producer and a consumer that disagree about a queue name or a
+ * retry limit fail silently — the job is written and nothing ever reads it, which is
+ * exactly the H-04/H-09 shape of defect.
  *
  * Everything that differs per service lives in that service's `queue/index.ts`: the
  * worker migrates the schema, registers queues and consumes; the two producers only
