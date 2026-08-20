@@ -1,68 +1,104 @@
-import { Queue, JobsOptions } from 'bullmq'
-import IORedis, { RedisOptions } from 'ioredis'
-import { env, redisTlsOptions } from '../config/env'
+import { PgBoss } from 'pg-boss'
+import { env, isProduction } from '../config/env'
+import { QUEUES, assertQueuesExist, producerBossOptions } from './contract'
 
 /**
- * Redis connections and queue registry for the ingestion service.
+ * The ingestion service's pg-boss instance: publish only.
  *
- * Three things were wrong here, and the first one made the other two invisible:
+ * Replaces a module that owned a Redis connection, a BullMQ `Queue` and shared
+ * `defaultJobOptions`. The Redis connection moved to `../redis`, which still has three real
+ * consumers (Socket.IO, the rate limiter, the quota cache); the queue moved to Postgres.
  *
- * 1. `process.env.REDIS_URL || 'redis://localhost:6379'` — combined with the
- *    `dotenv.config({ path: '../../.env' })` above it, which only resolved when the
- *    process was started from `apps/ingestion` (H-44), a hosted deployment silently
- *    connected to a local Redis that does not exist. Events were accepted, written to
- *    Postgres, and never queued. The URL is now required configuration (H-09).
- * 2. No TLS for `rediss://`, so a managed Redis would refuse the connection outright.
- * 3. No retention on completed or failed jobs, so the instance grew without bound (H-38).
+ * ## What this service is allowed to do
  *
- * The `ai` queue registration is gone (H-04): nothing ever consumed it, and AI insights
- * are generated on demand and cached in `ai.controller.ts`, so the producer was redundant
- * rather than merely unconsumed. Draining any jobs already enqueued is an operational
- * step, documented in `docs/hardening.md` — not something this code does on boot.
+ * Publish, and nothing else. `producerBossOptions` switches off `migrate`, `createSchema`,
+ * `supervise` and `schedule`, so this instance cannot install or alter the queue schema and
+ * does not run the maintenance or cron loops — those belong to `apps/worker`, which is the
+ * single owner of the queue. Left at their defaults, every ingestion replica would run a
+ * second copy of the maintenance loop and a second cron ticker.
+ *
+ * Because `migrate` is off, `boss.start()` runs the schema *check* rather than the
+ * installer: if the pg-boss schema is missing or is a version this client does not
+ * understand, startup fails here instead of at the first webhook. `assertQueuesExist` then
+ * covers what the check does not — the individual queue this service sends to. Together they
+ * turn "webhook accepted, job silently unqueueable" into "this replica refuses to boot",
+ * which is how this codebase already treats invalid configuration.
+ *
+ * ## Retry options are not set here
+ *
+ * Delivery retry limits, backoff, expiry and retention are properties of the *queue*, and
+ * the queue is defined once in `./contract` and registered by the worker. Under BullMQ every
+ * producer restated `attempts: 4` and a backoff policy on every `add()` call, in three
+ * places, and nothing kept them in step.
  */
 
-const connectionOptions = (): RedisOptions => ({
-  maxRetriesPerRequest: null,
-  enableReadyCheck: true,
-  ...redisTlsOptions(),
-})
+let instance: PgBoss | null = null
 
-/**
- * A named connection.
- *
- * Socket.IO's Redis adapter needs its own pair: the subscriber goes into subscriber mode,
- * where Redis rejects ordinary commands, so it cannot be the connection BullMQ is using
- * to enqueue jobs. The `role` is only used to label errors — without it, three
- * connections report failures indistinguishably.
- */
-export const createRedisConnection = (role: string): IORedis => {
-  const connection = new IORedis(env.REDIS_URL, connectionOptions())
+/** Queues this service publishes to. Checked at boot, not created. */
+const PUBLISHES_TO = [QUEUES.delivery] as const
 
-  connection.on('error', (error: Error) => {
-    // Otherwise the first symptom is deliveries quietly not happening.
-    console.error(`Ingestion Redis (${role}) error:`, error.message)
+export const startQueue = async (): Promise<PgBoss> => {
+  if (instance) return instance
+
+  const boss = new PgBoss(
+    producerBossOptions({
+      databaseUrl: env.DATABASE_URL,
+      isProduction,
+      applicationName: 'hookdrop-ingestion-queue',
+    })
+  )
+
+  /**
+   * pg-boss is an EventEmitter, and an unhandled `error` event terminates the process.
+   * Attached before `start()`.
+   *
+   * The message only: the error object can carry the connection string, which contains the
+   * database password (H-48).
+   */
+  boss.on('error', (error: Error) => {
+    console.error('Ingestion queue error:', error.message)
   })
 
-  return connection
-}
+  await boss.start()
+  await assertQueuesExist(boss, PUBLISHES_TO)
 
-export const redis = createRedisConnection('queue')
+  console.log(
+    `Ingestion: queue ready (schema ${await boss.schemaVersion()}, publishing to: ${PUBLISHES_TO.join(
+      ', '
+    )})`
+  )
+
+  instance = boss
+  return boss
+}
 
 /**
- * Bounded retention for every queue, matching the API's settings so the two producers
- * cannot disagree about how long a job's record survives.
+ * The started instance.
+ *
+ * Throws rather than lazily starting one. A publisher constructed on demand inside a request
+ * would open a second pool per replica and would skip the boot-time checks above, which is
+ * the failure this is here to prevent.
  */
-export const defaultJobOptions: JobsOptions = {
-  removeOnComplete: { count: 1000, age: 24 * 60 * 60 },
-  removeOnFail: { count: 5000, age: 7 * 24 * 60 * 60 },
+export const getBoss = (): PgBoss => {
+  if (!instance) {
+    throw new Error('Queue accessed before startQueue()')
+  }
+  return instance
 }
 
-export const deliveryQueue = new Queue('delivery', {
-  connection: redis,
-  defaultJobOptions,
-})
+/**
+ * Closes the pg-boss pool on shutdown.
+ *
+ * Nothing to drain — this instance runs no handlers — so this only stops the queue-metadata
+ * cache timer and closes the connections. It must run *before* the TypeORM `DataSource` is
+ * destroyed only in the sense that both must happen; they share no connections, because a
+ * transactional publish borrows the caller's TypeORM connection rather than one of these.
+ */
+export const closeQueue = async (timeoutMs = 5_000): Promise<void> => {
+  if (!instance) return
 
-export const closeQueues = async (): Promise<void> => {
-  await Promise.allSettled([deliveryQueue.close()])
-  await redis.quit()
+  const boss = instance
+  instance = null
+
+  await boss.stop({ graceful: true, timeout: timeoutMs, close: true })
 }
