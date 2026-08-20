@@ -27,6 +27,15 @@ export interface PlanDefinition {
   /** `null` means unlimited, as advertised. */
   readonly endpoints: number | null
   readonly ai_enabled: boolean
+  /**
+   * Inbound webhooks per minute accepted across one account's ingest URLs.
+   *
+   * No reader in this service — it is enforced at the ingestion edge. It is carried here
+   * because the three catalogues are kept identical on purpose: a field present in two copies
+   * and absent from the third is exactly the drift this convention exists to prevent, and the
+   * next person to add a plan would have to notice the omission to reproduce it.
+   */
+  readonly ingest_per_minute: number
 }
 
 export const PLAN_IDS = ['free', 'starter', 'pro', 'team'] as const satisfies
@@ -42,6 +51,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 24,
     endpoints: 2,
     ai_enabled: false,
+    ingest_per_minute: 60,
   },
   starter: {
     id: 'starter',
@@ -52,6 +62,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 168,
     endpoints: 5,
     ai_enabled: true,
+    ingest_per_minute: 300,
   },
   pro: {
     id: 'pro',
@@ -62,6 +73,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 720,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 1200,
   },
   team: {
     id: 'team',
@@ -72,6 +84,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 2160,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 3000,
   },
 }
 
