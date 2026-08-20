@@ -1,4 +1,4 @@
-import { Job } from 'bullmq'
+import type { JobWithMetadata } from 'pg-boss'
 import axios, { AxiosResponse } from 'axios'
 import http from 'node:http'
 import https from 'node:https'
@@ -13,14 +13,16 @@ import {
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
 } from '../services/signature.service'
+import { DeliveryJob, MAX_DELIVERY_ATTEMPTS } from '../queue/contract'
 
-interface DeliveryJobData {
-  eventId: string
-  endpointId: string
-}
-
-/** Attempts are counted per destination, on the delivery row, not per BullMQ job. */
-const MAX_ATTEMPTS = 4
+/**
+ * Attempts are counted per destination, on the delivery row — never per job.
+ *
+ * The number lives in `queue/contract.ts` because the queue's own retry budget has to be
+ * chosen against it, and two files disagreeing about how many attempts a destination gets
+ * is precisely the contradiction this migration had to remove.
+ */
+const MAX_ATTEMPTS = MAX_DELIVERY_ATTEMPTS
 
 /** Redirect hops followed, each re-validated against the SSRF guard. */
 const MAX_REDIRECTS = 3
@@ -52,15 +54,83 @@ const TERMINAL_STATUSES: ReadonlySet<DeliveryStatus> = new Set<DeliveryStatus>([
 
 type Attempt =
   | { kind: 'delivered'; status: number; body: string }
-  /** Might succeed later — consumes an attempt and re-throws so BullMQ retries. */
+  /** Might succeed later — consumes an attempt and asks the queue for another run. */
   | { kind: 'retry'; detail: string; status: number | null }
   /** Will never succeed — dead-lettered immediately without burning three retries. */
   | { kind: 'permanent'; detail: string; status: number | null }
 
+/**
+ * One structured line per delivery outcome.
+ *
+ * Fixed `key=value` fields, so every attempt on one delivery can be traced across retries
+ * by job, event, destination and delivery id, and a failure can be classified without
+ * reading the message. `detail` is the destination's own response body or a transport
+ * error string and is truncated; request headers never appear here, so the HMAC signature,
+ * the destination secret and the payload cannot reach the log (H-48). `JSON.stringify`
+ * keeps a multi-line response body on one line.
+ */
+const formatDeliveryLog = (fields: {
+  jobId: string
+  eventId: string
+  destinationId: string
+  deliveryId: string
+  attempt: number
+  result: string
+  classification?: string
+  status?: number | null
+  detail?: string
+  replay?: boolean
+}): string => {
+  const parts = [
+    `job=${fields.jobId}`,
+    `event=${fields.eventId}`,
+    `destination=${fields.destinationId}`,
+    `delivery=${fields.deliveryId}`,
+    `attempt=${fields.attempt}/${MAX_ATTEMPTS}`,
+    `result=${fields.result}`,
+  ]
+  if (fields.classification) parts.push(`class=${fields.classification}`)
+  if (fields.status !== undefined && fields.status !== null) {
+    parts.push(`status=${fields.status}`)
+  }
+  if (fields.replay) parts.push('replay=true')
+  if (fields.detail) {
+    parts.push(`detail=${JSON.stringify(fields.detail.slice(0, 300))}`)
+  }
+  return parts.join(' ')
+}
+
+/** A destination this run left in `retrying`, kept in case this run is the last one. */
+interface StrandedDelivery {
+  deliveryId: string
+  destinationId: string
+  destinationUrl: string
+  attempt: number
+  detail: string
+}
+
 export const processDelivery = async (
-  job: Job<DeliveryJobData>
+  job: JobWithMetadata<DeliveryJob>
 ): Promise<void> => {
-  const { eventId, endpointId } = job.data
+  const { eventId, endpointId, replay } = job.data
+  const jobId = job.id
+
+  /**
+   * Whether this is the last run the queue will give this job.
+   *
+   * `DELIVERY_QUEUE.retryLimit` is a backstop, not the attempt counter — the delivery rows
+   * are authoritative and `MAX_ATTEMPTS` is what a customer observes. The backstop still
+   * has to be handled, because throwing on the final run would leave every row this run
+   * set to `retrying` in that state permanently: nothing would ever come back for them,
+   * and the dashboard would show a delivery still being attempted after the queue had
+   * given up. So the final run resolves those rows itself, which is what keeps queue state
+   * and delivery state from contradicting each other.
+   *
+   * `retryCount` is the number of retries already performed, so it equals `retryLimit` on
+   * the last permitted run. Both fields are populated only when the consumer passes
+   * `includeMetadata: true`, which `../queue/handlers` does.
+   */
+  const isFinalAttempt = job.retryCount >= job.retryLimit
 
   const eventRepo = AppDataSource.getRepository(Event)
   const destinationRepo = AppDataSource.getRepository(Destination)
@@ -69,7 +139,12 @@ export const processDelivery = async (
   const event = await eventRepo.findOne({ where: { id: eventId } })
 
   if (!event) {
-    console.error(`Event ${eventId} not found`)
+    /**
+     * Completed, not failed. The event is gone — pruned by the retention sweep, or its
+     * endpoint deleted — so there is nothing a retry could accomplish, and returning
+     * discards the job instead of failing it eleven times first.
+     */
+    console.error(`Delivery job ${jobId}: event ${eventId} not found; discarding`)
     return
   }
 
@@ -87,7 +162,9 @@ export const processDelivery = async (
     .getMany()
 
   if (destinations.length === 0) {
-    console.log(`No destinations for endpoint ${endpointId}`)
+    console.log(
+      `Delivery job ${jobId}: no active destinations for endpoint ${endpointId}`
+    )
     await eventRepo.update(eventId, { status: 'delivered' })
     return
   }
@@ -100,6 +177,7 @@ export const processDelivery = async (
 
   let anyTerminalFailure = false
   let retryReason: string | null = null
+  const stranded: StrandedDelivery[] = []
 
   for (const destination of destinations) {
     let delivery = await deliveryRepo.findOne({
@@ -112,6 +190,11 @@ export const processDelivery = async (
      * The previous check looked only for `delivered`, so when a job was retried on
      * behalf of one destination, every already-failed destination was attempted again —
      * including permanent failures that could not change outcome.
+     *
+     * This is also the idempotency guarantee that makes at-least-once delivery of the
+     * *job* safe: a job that runs twice — redelivered after a worker was killed, or
+     * enqueued twice by a replay — re-reads these rows and does no work for any
+     * destination that has already finished.
      */
     if (delivery && TERMINAL_STATUSES.has(delivery.status)) {
       if (delivery.status !== 'delivered') anyTerminalFailure = true
@@ -132,10 +215,11 @@ export const processDelivery = async (
     /**
      * Per-destination attempt count read from the row.
      *
-     * `job.attemptsMade` is a property of the job, which covers every destination on
-     * the endpoint at once — so with two destinations, one flaky and one healthy, the
-     * flaky one's retries were being counted against a number the healthy one had also
-     * incremented. The row's own counter is the only per-destination truth available.
+     * The queue's own retry counter is a property of the job, which covers every
+     * destination on the endpoint at once — so with two destinations, one flaky and one
+     * healthy, the flaky one's retries were being counted against a number the healthy one
+     * had also incremented. The row's own counter is the only per-destination truth
+     * available, and it is why the database and not the queue decides when delivery stops.
      */
     const attempt = delivery.attempt_count + 1
 
@@ -156,7 +240,16 @@ export const processDelivery = async (
         delivered_at: new Date(),
       })
       console.log(
-        `Delivered event ${eventId} to destination ${destination.id} — ${outcome.status}`
+        formatDeliveryLog({
+          jobId,
+          eventId,
+          destinationId: destination.id,
+          deliveryId: delivery.id,
+          attempt,
+          result: 'delivered',
+          status: outcome.status,
+          replay,
+        })
       )
       continue
     }
@@ -178,18 +271,89 @@ export const processDelivery = async (
 
     if (!exhausted) {
       retryReason = outcome.detail
+      stranded.push({
+        deliveryId: delivery.id,
+        destinationId: destination.id,
+        destinationUrl: destination.url,
+        attempt,
+        detail: outcome.detail,
+      })
       console.warn(
-        `Event ${eventId} → destination ${destination.id} attempt ${attempt} failed (${outcome.detail}); will retry`
+        formatDeliveryLog({
+          jobId,
+          eventId,
+          destinationId: destination.id,
+          deliveryId: delivery.id,
+          attempt,
+          result: 'retrying',
+          classification: outcome.kind,
+          status: outcome.status,
+          detail: outcome.detail,
+          replay,
+        })
       )
       continue
     }
 
     anyTerminalFailure = true
     console.error(
-      `Event ${eventId} → destination ${destination.id} ${status} after ${attempt} attempt(s): ${outcome.detail}`
+      formatDeliveryLog({
+        jobId,
+        eventId,
+        destinationId: destination.id,
+        deliveryId: delivery.id,
+        attempt,
+        result: status,
+        classification: outcome.kind,
+        status: outcome.status,
+        detail: outcome.detail,
+        replay,
+      })
     )
 
     await notifyFailure(eventId, destination.url)
+  }
+
+  /**
+   * The queue's backstop has been reached while rows are still non-terminal.
+   *
+   * There will be no further run, so they are resolved here instead of being left
+   * claiming to be retrying — the one case where the queue's retry state has to be
+   * written back into delivery state. `dead_letter` rather than `failed`: no destination
+   * gave a permanently-fatal answer, delivery ran out of attempts, which is the same
+   * distinction the per-destination ceiling already draws.
+   *
+   * Reaching this at all means something unusual consumed the backstop — a database
+   * outage across many runs, or an endpoint with far more destinations than the expiry
+   * window allows — so it is logged with its own classification rather than looking like
+   * an ordinary exhausted delivery.
+   */
+  if (retryReason !== null && isFinalAttempt) {
+    for (const entry of stranded) {
+      await deliveryRepo.update(entry.deliveryId, {
+        status: 'dead_letter',
+        response_body: `Queue retry budget exhausted after ${entry.attempt} attempt(s): ${entry.detail}`.slice(
+          0,
+          RESPONSE_BODY_STORED_CHARS
+        ),
+      })
+      anyTerminalFailure = true
+      console.error(
+        formatDeliveryLog({
+          jobId,
+          eventId,
+          destinationId: entry.destinationId,
+          deliveryId: entry.deliveryId,
+          attempt: entry.attempt,
+          result: 'dead_letter',
+          classification: 'queue-budget-exhausted',
+          detail: entry.detail,
+          replay,
+        })
+      )
+      await notifyFailure(eventId, entry.destinationUrl)
+    }
+    retryReason = null
   }
 
   /**
@@ -209,8 +373,15 @@ export const processDelivery = async (
   }
 
   /**
-   * Re-throwing is what makes BullMQ schedule the retry, and it has to happen after the
+   * Throwing is what makes the queue schedule the retry, and it has to happen after the
    * database writes above so the recorded state matches what was attempted.
+   *
+   * A fresh `Error` carrying a curated message, never the underlying transport error.
+   * pg-boss persists whatever is thrown into the job's `output` column — a durable row,
+   * unlike BullMQ's in-memory failure — and an axios error serialises its own `config`,
+   * which carries the request headers and therefore the HMAC signature (H-48).
+   * `classifyTransportError` has already reduced those to a short detail string before
+   * they reach here, and `queue/handlers.ts` sanitises anything unexpected.
    */
   if (retryReason !== null) {
     throw new Error(`Delivery incomplete for event ${eventId}: ${retryReason}`)
@@ -447,6 +618,13 @@ const classifyTransportError = (error: unknown): Attempt => {
 /**
  * Failure notification. Isolated so a Resend outage cannot fail the job — the delivery
  * state is already recorded by the time this runs.
+ *
+ * The three columns the email template needs are selected by name and nothing is
+ * hydrated into an entity. The previous `relations: ['endpoint', 'endpoint.user']` loaded
+ * whole rows, and `User.password_hash` has no `select: false`, so every dead-lettered
+ * delivery pulled a bcrypt hash into worker memory to render an email that uses the
+ * address and the display name (B-3). It also read the plan and payment-provider columns
+ * for no reason. Nothing about the notification needed any of it.
  */
 const notifyFailure = async (
   eventId: string,
@@ -454,20 +632,34 @@ const notifyFailure = async (
 ): Promise<void> => {
   try {
     const { sendDeliveryFailureEmail } = await import('../services/email.service')
-    const fullEvent = await AppDataSource.getRepository(Event).findOne({
-      where: { id: eventId },
-      relations: ['endpoint', 'endpoint.user'],
-    })
-    if (fullEvent?.endpoint?.user) {
+
+    const recipient = await AppDataSource.getRepository(Event)
+      .createQueryBuilder('event')
+      .innerJoin('event.endpoint', 'endpoint')
+      .innerJoin('endpoint.user', 'user')
+      .select('user.email', 'email')
+      .addSelect('user.name', 'name')
+      .addSelect('endpoint.name', 'endpointName')
+      .where('event.id = :eventId', { eventId })
+      .getRawOne<{ email: string; name: string; endpointName: string }>()
+
+    if (recipient) {
       await sendDeliveryFailureEmail(
-        fullEvent.endpoint.user.email,
-        fullEvent.endpoint.user.name,
-        fullEvent.endpoint.name,
+        recipient.email,
+        recipient.name,
+        recipient.endpointName,
         eventId,
         destinationUrl
       )
     }
   } catch (emailError) {
-    console.error('Failed to send failure email:', emailError)
+    /**
+     * Message only. A Resend transport error serialises the request that produced it,
+     * and that request carries `Authorization: Bearer <RESEND_API_KEY>` (H-48).
+     */
+    console.error(
+      'Failed to send failure email:',
+      emailError instanceof Error ? emailError.message : 'unknown error'
+    )
   }
 }
