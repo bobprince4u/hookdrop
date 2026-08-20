@@ -1,13 +1,12 @@
 import { Router, Request, Response } from 'express'
 import { AppDataSource } from '../db'
-import { Endpoint } from '../entities/Endpoint'
 import { Event } from '../entities/Event'
 import { getBoss } from '../queue'
 import { publishDelivery } from '../queue/contract'
 import { emitNewEvent } from '../socket'
 import { ingestRateLimiter } from '../middleware/rateLimiter'
+import { resolveEndpoint, ingestContext } from '../middleware/resolveEndpoint'
 import { redactSensitiveHeaders } from '../services/headers.util'
-import { resolveEffectivePlan } from '../services/plan.service'
 import {
   claimLimitWarning,
   readMonthlyUsage,
@@ -35,7 +34,8 @@ const router = Router()
  *   source.
  * - **H-29.** Entitlement was read straight off `user.plan` with no reference to
  *   `plan_expires_at`, so a lapsed subscription kept its paid quota until the worker's
- *   nightly downgrade happened to run. `resolveEffectivePlan` is now consulted at the edge.
+ *   nightly downgrade happened to run. `resolveEffectivePlan` is now consulted at the edge,
+ *   in `middleware/resolveEndpoint.ts`.
  * - **H-21.** The month boundary was local time, and the count was a fresh `COUNT(*)` over
  *   every event in the month on every request.
  * - **H-47.** The 80% warning used exact equality against that count, so it was skipped
@@ -43,31 +43,11 @@ const router = Router()
  *   the count back down.
  * - **H-17.** `req.headers` was stored verbatim, persisting whatever credentials the sender
  *   put in `Authorization`, `Cookie`, or a signature header.
- */
-
-/**
- * Loaded per request, and deliberately narrow.
  *
- * `relations: ['user']` selected every user column, `password_hash` included, on every
- * inbound webhook. Nothing here needs it, and a bcrypt digest that never enters process
- * memory cannot be leaked by a log line or a crash dump.
+ * The endpoint lookup that used to open this handler now lives in `resolveEndpoint`, which
+ * runs before the rate limiter so the limiter can read the account's plan. It is the same
+ * single query, moved — not an additional one.
  */
-const findActiveEndpoint = async (token: string) =>
-  AppDataSource.getRepository(Endpoint).findOne({
-    where: { public_token: token, is_active: true },
-    relations: { user: true },
-    select: {
-      id: true,
-      user_id: true,
-      user: {
-        id: true,
-        email: true,
-        name: true,
-        plan: true,
-        plan_expires_at: true,
-      },
-    },
-  })
 
 /**
  * Sends the 80%-of-quota warning, at most once per user per month.
@@ -103,24 +83,15 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
   const token = req.params.token as string
 
   try {
-    const endpoint = await findActiveEndpoint(token)
-
-    if (!endpoint || !endpoint.user) {
-      // Same answer for a bad token, a disabled endpoint, and a deleted owner.
-      res.status(404).json({ error: 'Endpoint not found' })
-      return
-    }
-
-    const user = endpoint.user
-
     /**
-     * Effective plan, not the stored column (H-29). An expired paid plan resolves to free
-     * here, so the quota it is checked against is the one the account is actually entitled
-     * to at this instant.
+     * Already loaded and validated by `resolveEndpoint`, which also answered 404 for an
+     * unknown token, a disabled endpoint or a deleted owner — so by here the endpoint exists,
+     * is active, has an owner, and the owner's effective plan is known.
      */
-    const plan = resolveEffectivePlan(user)
+    const { id: endpointId, userId, user, plan } = ingestContext(req)
+
     const limit = plan.events
-    const used = await readMonthlyUsage(endpoint.user_id)
+    const used = await readMonthlyUsage(userId)
 
     if (used >= limit) {
       /**
@@ -131,7 +102,7 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
        * that are actually useful for debugging are logged server-side instead.
        */
       console.warn(
-        `Ingest rejected for user ${endpoint.user_id}: ${used}/${limit} events used on the ${plan.id} plan`
+        `Ingest rejected for user ${userId}: ${used}/${limit} events used on the ${plan.id} plan`
       )
       res.status(429).json({ error: 'Monthly event limit reached' })
       return
@@ -140,7 +111,7 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
     const eventRepo = AppDataSource.getRepository(Event)
 
     const event = eventRepo.create({
-      endpoint_id: endpoint.id,
+      endpoint_id: endpointId,
       method: req.method,
       /**
        * Redacted before it is ever written (H-17). This is the durable half of the fix —
@@ -188,14 +159,14 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
 
       await publishDelivery(getBoss(), manager, {
         eventId: saved.id,
-        endpointId: endpoint.id,
+        endpointId,
       })
 
       return saved
     })
 
     // Only after a committed insert, so a rejected sender retrying cannot inflate usage.
-    await recordEventStored(endpoint.user_id)
+    await recordEventStored(userId)
 
     /**
      * Publishes through the Redis adapter, so it reaches dashboard clients connected to the
@@ -228,7 +199,7 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
   }
 }
 
-router.post('/in/:token', ingestRateLimiter, handleIngest)
-router.get('/in/:token', ingestRateLimiter, handleIngest)
+router.post('/in/:token', resolveEndpoint, ingestRateLimiter, handleIngest)
+router.get('/in/:token', resolveEndpoint, ingestRateLimiter, handleIngest)
 
 export default router
