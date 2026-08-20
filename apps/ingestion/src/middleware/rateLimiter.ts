@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit'
 import { RedisStore } from 'rate-limit-redis'
 import type { RedisReply } from 'rate-limit-redis'
-import { redis } from '../queue'
+import { redis } from '../redis'
 
 export const ingestRateLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
