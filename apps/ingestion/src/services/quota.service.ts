@@ -1,6 +1,6 @@
 import { AppDataSource } from '../db'
 import { Event } from '../entities/Event'
-import { redis } from '../queue'
+import { redis } from '../redis'
 import {
   currentMonthKeyUtc,
   secondsUntilNextMonthUtc,
