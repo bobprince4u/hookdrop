@@ -1,8 +1,9 @@
 import type { Server as HttpServer } from 'node:http'
+import type IORedis from 'ioredis'
 import { Server } from 'socket.io'
 import { createAdapter } from '@socket.io/redis-adapter'
 import { allowedOrigins } from './config/env'
-import { createRedisConnection } from './queue'
+import { createRedisConnection } from './redis'
 
 /**
  * Socket.IO server for the ingestion service (H-12).
@@ -24,16 +25,27 @@ import { createRedisConnection } from './queue'
 
 let server: Server | null = null
 
+/**
+ * The adapter's connections, held so shutdown can close them.
+ *
+ * `server.close()` shuts the Socket.IO server down but knows nothing about the clients the
+ * adapter was constructed with, so these were left open: two ioredis connections with active
+ * handles, which keep the event loop alive and stop the process exiting on SIGTERM until the
+ * platform's kill timeout fires.
+ */
+let adapterClients: readonly IORedis[] = []
+
 export const createSocketServer = (httpServer: HttpServer): Server => {
   const origins = allowedOrigins()
 
   /**
-   * The adapter needs its own pair of connections. The subscriber enters subscriber mode,
-   * in which Redis rejects ordinary commands, so it cannot be the connection BullMQ uses
-   * to enqueue delivery jobs.
+   * The adapter needs its own pair of connections. The subscriber enters subscriber mode, in
+   * which Redis rejects ordinary commands, so it cannot be the connection the rate limiter
+   * and the quota cache use.
    */
   const pubClient = createRedisConnection('socket-pub')
   const subClient = createRedisConnection('socket-sub')
+  adapterClients = [pubClient, subClient]
 
   server = new Server(httpServer, {
     cors: {
@@ -69,8 +81,8 @@ export const createSocketServer = (httpServer: HttpServer): Server => {
  *
  * A narrow function rather than an exported `io`: the caller does not need the server
  * object, and if the socket server is not up yet this is a no-op instead of a crash on
- * `undefined.to`. Delivery does not depend on it — the event is already persisted and
- * queued by the time this runs.
+ * `undefined.to`. Delivery does not depend on it — the event and its delivery job are
+ * already committed by the time this runs.
  */
 export const emitNewEvent = (room: string, payload: unknown): void => {
   if (!server) return
@@ -86,9 +98,14 @@ export const emitNewEvent = (room: string, payload: unknown): void => {
 }
 
 export const closeSocketServer = async (): Promise<void> => {
-  if (!server) return
-  await new Promise<void>((resolve) => {
-    server?.close(() => resolve())
-  })
-  server = null
+  if (server) {
+    await new Promise<void>((resolve) => {
+      server?.close(() => resolve())
+    })
+    server = null
+  }
+
+  // After the server, so a final relayed emit is not cut off mid-publish.
+  await Promise.allSettled(adapterClients.map((client) => client.quit()))
+  adapterClients = []
 }
