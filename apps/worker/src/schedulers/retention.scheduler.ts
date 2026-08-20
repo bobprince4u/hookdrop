@@ -1,4 +1,3 @@
-import cron, { ScheduledTask } from 'node-cron'
 import { AppDataSource } from '../db'
 import { env } from '../config/env'
 import { PLAN_IDS, PLANS, type PlanId } from '../services/plan.service'
@@ -58,17 +57,25 @@ import { PLAN_IDS, PLANS, type PlanId } from '../services/plan.service'
  *  - Requires `idx_events_endpoint_received` from
  *    `migrations/1787011500000_add-events-endpoint-received-index.js`. Without it this delete
  *    is a sequential scan of the largest table in the schema, once per tier, every hour.
+ *
+ * ## Scheduling
+ *
+ * This module is now only the *body* of the job. The schedule itself lives in the queue —
+ * `queue/handlers.ts` registers `RETENTION_CRON` with pg-boss and pg-boss enqueues a
+ * `retention` job on each tick — because `cron.schedule` ran in every worker process, so
+ * every replica started its own sweep on the same tick. They divided the work correctly
+ * thanks to `SKIP LOCKED` rather than corrupting anything, but each replica paid for its own
+ * `reportUnknownPlans` scan and its own share of the per-run cap, which made the cap mean
+ * something different depending on how many replicas happened to be running.
  */
 
 /**
  * Offset from `cleanupDemoEvents`, which runs at `0 * * * *`. Two hourly jobs deleting from
  * the same table on the same tick would contend for the same pages for no reason.
  */
-const RETENTION_CRON = '25 * * * *'
+export const RETENTION_CRON = '25 * * * *'
 
 const HOUR_MS = 60 * 60 * 1000
-
-let tasks: ScheduledTask[] = []
 
 /** The instant before which events on `plan` are no longer retained. */
 const retentionCutoff = (plan: PlanId, now: Date = new Date()): Date =>
@@ -214,33 +221,4 @@ export const enforceRetention = async (): Promise<void> => {
       error instanceof Error ? error.message : 'unknown error'
     )
   }
-}
-
-/** Registered from the service entrypoint, never at import (the H-10 mistake). */
-export const startRetentionScheduler = (): void => {
-  if (tasks.length > 0) return
-
-  if (!env.RETENTION_ENABLED) {
-    console.warn(
-      'RETENTION_ENABLED is false; per-plan event retention is NOT being enforced.'
-    )
-    return
-  }
-
-  tasks = [
-    cron.schedule(RETENTION_CRON, () => void enforceRetention(), {
-      timezone: env.SCHEDULER_TIMEZONE,
-    }),
-  ]
-
-  console.log(
-    `Retention scheduler started (${RETENTION_CRON}, timezone ${env.SCHEDULER_TIMEZONE})`
-  )
-}
-
-export const stopRetentionScheduler = (): void => {
-  for (const task of tasks) {
-    void task.stop()
-  }
-  tasks = []
 }
