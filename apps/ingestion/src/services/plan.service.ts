@@ -30,6 +30,20 @@ export interface PlanDefinition {
   /** `null` means unlimited, as advertised. */
   readonly endpoints: number | null
   readonly ai_enabled: boolean
+  /**
+   * Inbound webhooks per minute accepted across one account's ingest URLs.
+   *
+   * A burst guard, not a quota. `events` is the metered monthly allowance and Postgres is
+   * authoritative for it; this bounds only how fast one tenant can drive the hot path. The
+   * values sit far above each tier's sustained average — pro's 100 000/month is about
+   * 2.3/minute — so a provider replaying a backlog is not throttled, and far below what one
+   * account would need to saturate the service.
+   *
+   * The ingest limiter used to hardcode 60/minute for every account and tell every caller
+   * the limit was a "free tier" one, so a Team subscriber paying for 500 000 events a month
+   * was capped at the same rate as a free account and given a false reason for it (S-3).
+   */
+  readonly ingest_per_minute: number
 }
 
 export const PLAN_IDS = ['free', 'starter', 'pro', 'team'] as const satisfies
@@ -45,6 +59,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 24,
     endpoints: 2,
     ai_enabled: false,
+    ingest_per_minute: 60,
   },
   starter: {
     id: 'starter',
@@ -55,6 +70,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 168,
     endpoints: 5,
     ai_enabled: true,
+    ingest_per_minute: 300,
   },
   pro: {
     id: 'pro',
@@ -65,6 +81,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 720,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 1200,
   },
   team: {
     id: 'team',
@@ -75,6 +92,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 2160,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 3000,
   },
 }
 
