@@ -6,7 +6,8 @@ import { env } from './config/env'
 import { initDB, AppDataSource } from './db'
 import ingestRouter from './routes/ingest'
 import { createSocketServer, closeSocketServer } from './socket'
-import { closeQueues } from './queue'
+import { startQueue, closeQueue } from './queue'
+import { closeRedis } from './redis'
 
 /**
  * Configuration is validated at import time by `./config/env`, which exits the process if
@@ -117,8 +118,19 @@ app.use(
   }
 )
 
+/**
+ * Nothing starts listening until both the database and the queue are ready.
+ *
+ * `startQueue` verifies that the pg-boss schema is installed and that the `delivery` queue
+ * exists, and throws if either is missing. Doing that before `listen` is what stops a
+ * misconfigured replica from accepting webhooks it cannot queue: with the publish now inside
+ * the event's transaction, an unusable queue means every ingest attempt rolls back and
+ * answers 500, and a replica in that state should fail its health check rather than take
+ * traffic.
+ */
 const start = async (): Promise<void> => {
   await initDB()
+  await startQueue()
   httpServer.listen(env.PORT, () => {
     console.log(
       `Ingestion service listening on port ${env.PORT} (${env.NODE_ENV})`
@@ -129,9 +141,16 @@ const start = async (): Promise<void> => {
 /**
  * Graceful shutdown.
  *
- * Without it, a deploy or scale-down kills the process mid-request: an event that has been
- * written to Postgres but whose `deliveryQueue.add` has not yet been acknowledged is
- * simply never delivered, and nothing records that it was lost.
+ * Without it, a deploy or scale-down kills the process mid-request. That used to mean an
+ * event written to Postgres whose `deliveryQueue.add` had not yet been acknowledged was
+ * never delivered and nothing recorded the loss; the event and its delivery job now commit
+ * together, so the worst an abrupt kill can do is fail a request the sender will retry.
+ *
+ * The order is: stop accepting HTTP, close the socket server and its adapter connections,
+ * close the queue pool, close the shared Redis connection, then the database last — a
+ * request still finishing during the drain may be writing an event and its delivery job, and
+ * pulling the database out from under it would roll back work the sender is about to be told
+ * succeeded.
  */
 const shutdown = async (signal: string): Promise<void> => {
   console.log(`Received ${signal}, shutting down ingestion service`)
@@ -146,7 +165,8 @@ const shutdown = async (signal: string): Promise<void> => {
   try {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()))
     await closeSocketServer()
-    await closeQueues()
+    await closeQueue()
+    await closeRedis()
     if (AppDataSource.isInitialized) await AppDataSource.destroy()
     clearTimeout(timer)
     process.exit(0)
