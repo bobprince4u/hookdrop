@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express'
 import { AppDataSource } from '../db'
 import { Endpoint } from '../entities/Endpoint'
 import { Event } from '../entities/Event'
-import { deliveryQueue } from '../queue'
+import { getBoss } from '../queue'
+import { publishDelivery } from '../queue/contract'
 import { emitNewEvent } from '../socket'
 import { ingestRateLimiter } from '../middleware/rateLimiter'
 import { redactSensitiveHeaders } from '../services/headers.util'
@@ -19,9 +20,13 @@ const router = Router()
 /**
  * Webhook capture — the hot path of the whole system.
  *
- * Six findings converged on this one handler, and they are listed here because several of
+ * Seven findings converged on this one handler, and they are listed here because several of
  * them were invisible while the others stood:
  *
+ * - **B-1.** A committed event could end up with no delivery work at all: the insert
+ *   committed, and only then was a job pushed to Redis as a separate round trip. See the
+ *   comment on the transaction below — this is the finding the whole queue migration exists
+ *   to fix, and the only one here that silently dropped customer webhooks.
  * - **H-26 / H-36.** The plan limits were written out twice inside this file: a module-level
  *   `PLAN_LIMITS` keyed `{ events_per_month }`, and a second inline literal forty lines
  *   further down keyed as a bare number. The inline copy had already drifted in shape, and
@@ -152,7 +157,42 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
       status: 'received',
     })
 
-    const savedEvent = await eventRepo.save(event)
+    /**
+     * The event and its delivery job are written by a single transaction (B-1).
+     *
+     * This is the whole reason the queue moved to Postgres. The sequence used to be
+     * `save(event)` — which commits — followed by `deliveryQueue.add()` as a separate network
+     * round trip to Redis. Anything that interrupted the gap left a committed event with no
+     * delivery work and nothing recording that fact: a SIGTERM during a deploy, a Redis
+     * failover, an OOM kill. The event showed up in the dashboard as `received` for ever and
+     * the customer's destination was simply never called, silently and unrecoverably, because
+     * no retry anywhere was aware there was anything to retry.
+     *
+     * `publishDelivery` writes the job row through the transaction's own connection, so the
+     * invariant is structural rather than best-effort: **if this transaction commits, durable
+     * delivery work exists for it.** There is no window to close, and therefore no outbox
+     * table and sweeper needed to close one.
+     *
+     * It also removes the failure mode where the queue is unreachable but the database is
+     * fine. The job is a row in this same database, inserted over this same connection, so no
+     * separate queue process has to be reachable for the work to become durable — a worker
+     * that is down picks it up when it returns.
+     *
+     * If the publish *does* fail, the event rolls back and the sender receives a 500. That is
+     * the correct direction to fail: a provider that gets a 500 retries, while a provider that
+     * gets a 200 never will. Answering 200 for an event we could not queue would silently
+     * drop the webhook, which is exactly the bug being fixed.
+     */
+    const savedEvent = await AppDataSource.transaction(async (manager) => {
+      const saved = await manager.getRepository(Event).save(event)
+
+      await publishDelivery(getBoss(), manager, {
+        eventId: saved.id,
+        endpointId: endpoint.id,
+      })
+
+      return saved
+    })
 
     // Only after a committed insert, so a rejected sender retrying cannot inflate usage.
     await recordEventStored(endpoint.user_id)
@@ -161,17 +201,11 @@ const handleIngest = async (req: Request, res: Response): Promise<void> => {
      * Publishes through the Redis adapter, so it reaches dashboard clients connected to the
      * API process rather than to this one (H-12). The payload carries the redacted headers,
      * because that is what was stored.
+     *
+     * After the commit, not before: the live feed must not show an event that a rolled-back
+     * transaction means does not exist.
      */
     emitNewEvent(token, savedEvent)
-
-    await deliveryQueue.add(
-      'deliver',
-      { eventId: savedEvent.id, endpointId: endpoint.id },
-      {
-        attempts: 4,
-        backoff: { type: 'exponential', delay: 5000 },
-      }
-    )
 
     res.status(200).json({ ok: true, eventId: savedEvent.id })
 
