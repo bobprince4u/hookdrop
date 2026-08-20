@@ -64,9 +64,12 @@ const signingSecret = (label: string) =>
     })
 
 /**
- * Redis and Postgres URLs are required outright in production. In development we
- * still require them explicitly — defaulting to localhost is what let the API
- * connect to a non-existent queue without anyone noticing (H-09).
+ * Infrastructure URLs are required outright, in every environment.
+ *
+ * Defaulting one to localhost is what let this service talk to a queue that was not there
+ * without anyone noticing (H-09). That queue now lives in Postgres, so the specific failure is
+ * gone — but the rule it produced applies to every URL here: an unreachable dependency should
+ * stop the process at boot, not turn into a mystery in production.
  */
 const requiredUrl = (label: string, protocols: string[]) =>
   z
@@ -103,6 +106,21 @@ const envSchema = z
     /** Postgres pool ceiling per process. Three services share one instance. */
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
+    /**
+     * Retained after the queue migration, deliberately — but for a smaller job than it had.
+     *
+     * Nothing behind this variable is a queue any more. Two readers remain, and both need
+     * state that is shared across replicas rather than held per process:
+     *
+     *  - the **Socket.IO adapter**, so a `new_event` published by the ingestion service
+     *    reaches a dashboard socket held by this one (H-12);
+     *  - the **rate-limiter stores**, where a per-process counter multiplies every published
+     *    limit by the replica count. On `login`, `register` and `refresh` that is the
+     *    brute-force control, not a fairness guard.
+     *
+     * pg-boss needs no configuration of its own here: this service publishes jobs over the
+     * Postgres connection it already has, with a pool size fixed in `queue/contract.ts`.
+     */
     REDIS_URL: requiredUrl('REDIS_URL', ['redis', 'rediss']),
 
     JWT_SECRET: signingSecret('JWT_SECRET'),
