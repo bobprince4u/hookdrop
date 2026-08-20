@@ -15,6 +15,8 @@ import { z } from 'zod'
  *
  *   - `REDIS_URL || 'redis://localhost:6379'` — the worker connected to a Redis that does
  *     not exist in a hosted deployment, so no queued delivery was ever consumed (H-09).
+ *     `REDIS_URL` is gone from this schema entirely: the queue is Postgres now, and this
+ *     service holds no Redis connection of any kind.
  *   - `process.env.FRONTEND_URL` is interpolated into seven email templates, which
  *     rendered every dashboard link as `undefined/dashboard`.
  *   - `tracesSampleRate: 1.0`, hardcoded, traced every operation in production (H-43).
@@ -95,7 +97,19 @@ const envSchema = z
     DATABASE_URL: requiredUrl('DATABASE_URL', ['postgres', 'postgresql']),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(5),
 
-    REDIS_URL: requiredUrl('REDIS_URL', ['redis', 'rediss']),
+    /**
+     * Size of the pool pg-boss opens for itself, separate from TypeORM's.
+     *
+     * pg-boss borrows the caller's connection when a job is published inside a
+     * transaction, but its own fetching, completion and maintenance queries need
+     * connections of their own. Four covers polling plus completions at the default
+     * `DELIVERY_CONCURRENCY`; it is configurable because this is the one service whose
+     * queue traffic scales with throughput, and deliberately small because the reason
+     * `DATABASE_POOL_MAX` is bounded — three services against one managed instance —
+     * applies to this pool too. It is a separate variable rather than an increase to
+     * `DATABASE_POOL_MAX` so the two budgets stay legible.
+     */
+    PGBOSS_POOL_MAX: z.coerce.number().int().min(1).max(50).default(4),
 
     SENTRY_DSN: optionalNonEmpty,
     SENTRY_TRACES_SAMPLE_RATE: z.coerce
@@ -208,9 +222,6 @@ const parseEnv = (): WorkerEnv => {
 export const env: WorkerEnv = parseEnv()
 
 export const isProduction = env.NODE_ENV === 'production'
-
-export const redisTlsOptions = (): { tls?: Record<string, never> } =>
-  env.REDIS_URL.startsWith('rediss://') ? { tls: {} } : {}
 
 /**
  * Sender for outbound mail.
