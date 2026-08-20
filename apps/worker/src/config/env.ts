@@ -131,10 +131,19 @@ const envSchema = z
     /**
      * The demo endpoint whose events are pruned hourly. Was a bare UUID literal inside a
      * raw SQL string in the scheduler; the default preserves that exact value.
+     *
+     * `guid` rather than `uuid`, which would reject the default it is guarding. Zod 4's
+     * `uuid()` enforces the RFC 9562 version and variant nibbles, and this literal has
+     * neither — it is a hand-written sentinel, not a generated v4. The default is not
+     * validated (Zod returns it without re-parsing), so the mismatch is invisible until
+     * someone sets `DEMO_ENDPOINT_ID` explicitly to the documented value, at which point
+     * the worker refuses to boot. `guid()` checks the shape, which is the whole
+     * requirement: this value is interpolated into a `WHERE endpoint_id = $1`, so what
+     * matters is that Postgres can cast it.
      */
     DEMO_ENDPOINT_ID: z
       .string()
-      .uuid()
+      .guid()
       .default('00000000-0000-0000-0000-000000000002'),
     DEMO_RETENTION_HOURS: z.coerce.number().int().positive().default(1),
 
