@@ -30,6 +30,15 @@ export interface PlanDefinition {
   /** `null` means unlimited, as advertised. */
   readonly endpoints: number | null
   readonly ai_enabled: boolean
+  /**
+   * Inbound webhooks per minute accepted across one account's ingest URLs.
+   *
+   * Enforced by the ingestion service, not this one, but published here because this file is
+   * the catalogue: the billing page reads these definitions to describe what a plan buys, and
+   * a rate that is enforced somewhere and documented nowhere is how the hardcoded 60/minute
+   * survived across every tier in the first place (S-3).
+   */
+  readonly ingest_per_minute: number
 }
 
 /** Declared as a const tuple so `z.enum(PLAN_IDS)` stays type-safe. */
@@ -46,6 +55,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 24,
     endpoints: 2,
     ai_enabled: false,
+    ingest_per_minute: 60,
   },
   starter: {
     id: 'starter',
@@ -56,6 +66,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 168,
     endpoints: 5,
     ai_enabled: true,
+    ingest_per_minute: 300,
   },
   pro: {
     id: 'pro',
@@ -66,6 +77,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 720,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 1200,
   },
   team: {
     id: 'team',
@@ -76,6 +88,7 @@ export const PLANS: Readonly<Record<PlanId, PlanDefinition>> = {
     retention_hours: 2160,
     endpoints: null,
     ai_enabled: true,
+    ingest_per_minute: 3000,
   },
 }
 
