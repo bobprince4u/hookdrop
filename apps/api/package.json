@@ -13,7 +13,6 @@
     "@socket.io/redis-adapter": "^8.3.0",
     "axios": "^1.14.0",
     "bcrypt": "^6.0.0",
-    "bullmq": "^5.71.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
