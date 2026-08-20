@@ -2,7 +2,7 @@ import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit'
 import { RedisStore } from 'rate-limit-redis'
 import type { RedisReply } from 'rate-limit-redis'
 import type { Request, Response } from 'express'
-import { redis } from '../queue'
+import { redis } from '../redis'
 import type { AuthRequest } from './auth'
 
 /**
