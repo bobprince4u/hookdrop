@@ -14,8 +14,11 @@ import { z } from 'zod'
  * over silently (H-44).
  *
  * The most damaging fallback was `REDIS_URL || 'redis://localhost:6379'`: in a hosted
- * deployment that connects to nothing, so events were accepted, saved, and never
- * queued for delivery (H-09, H-38).
+ * deployment that connects to nothing, and back when the delivery queue lived in Redis it
+ * meant events were accepted, saved, and never queued for delivery (H-09, H-38). The queue
+ * is now Postgres, so that particular consequence is gone — but the variable is still
+ * required outright, because the rate limiter and the quota cache both depend on it and a
+ * silent localhost fallback is how a missing dependency becomes a mystery in production.
  *
  * Nothing here logs a value — only variable names (H-48).
  */
@@ -80,6 +83,16 @@ const envSchema = z.object({
   /** Three services share one Postgres instance, so each caps its own pool. */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
+  /**
+   * Retained after the queue migration, deliberately and for three non-queue readers: the
+   * Socket.IO adapter that relays `new_event` to dashboard clients connected to the API
+   * process (H-12), the distributed ingest rate limiter, and the monthly quota cache. None of
+   * them is a queue, and none has a correct single-process substitute in a service that scales
+   * horizontally.
+   *
+   * pg-boss needs no configuration of its own here: the producer connects with `DATABASE_URL`
+   * and a two-connection pool fixed in `queue/contract.ts`.
+   */
   REDIS_URL: requiredUrl('REDIS_URL', ['redis', 'rediss']),
 
   SENTRY_DSN: optionalNonEmpty,
@@ -102,11 +115,25 @@ const envSchema = z.object({
   EMAIL_FROM: optionalNonEmpty,
 
   /**
-   * Number of proxy hops in front of this service. The rate limiter keys on
-   * `req.params.token` rather than the IP, but `req.ip` is still recorded on every
-   * event, and an unset value records the proxy's address for every request (H-19).
+   * Number of proxy hops in front of this service. `req.ip` is recorded as `source_ip` on
+   * every event, and an unset value records the proxy's address for every request (H-19).
+   *
+   * It now also decides the rate-limit bucket for demo traffic, which is keyed per client
+   * address rather than per token so one visitor cannot throttle the public demo for
+   * everyone. A wrong hop count there is a bypass, not just a mislabelled event.
    */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(1),
+
+  /**
+   * The marketing demo's shared capture token, mirroring `apps/api`'s variable of the same
+   * name so both services agree on which token is the public one.
+   *
+   * Needed here because demo traffic is rate-limited differently: one shared endpoint serves
+   * every visitor, so a bucket keyed on the token is a bucket every visitor shares, and one
+   * person holding the demo button locked the demo out for the whole internet. The default
+   * matches the API's so an existing deployment that sets neither keeps working.
+   */
+  DEMO_PUBLIC_TOKEN: z.string().trim().min(1).default('demo-hookdrop-live-2024'),
 
   /**
    * Largest inbound webhook accepted, in bytes. `express.text({ type: '*[/]*' })` was
