@@ -15,6 +15,25 @@ import type { AuthRequest } from './auth'
  * State lives in Redis so limits hold across replicas rather than resetting per
  * process. Correct client IPs depend on `trust proxy` being configured, which the
  * app now does explicitly (H-07).
+ *
+ * ## What happens when Redis is unreachable
+ *
+ * The limiters below split on this, deliberately, because they are not all doing the same
+ * job. The BullMQ removal is what forced the question: the shared connection carried
+ * `maxRetriesPerRequest: null` — required by BullMQ on blocking connections, and the reason
+ * a Redis outage used to make commands hang rather than fail. It is now `3`, so store errors
+ * surface immediately, and `express-rate-limit`'s default is to reject the request.
+ *
+ * Where the limiter *is* the security control, that default is correct and stays: without it,
+ * a Redis outage becomes unlimited password guessing (`login`), unlimited account enumeration
+ * (`register`), unlimited refresh-token probing (`refresh`), unmetered spend against a paid
+ * model (`ai`), or an unthrottled write amplifier into the delivery queue (`replay`). Failing
+ * those closed costs availability on five routes for the duration of the outage.
+ *
+ * Where the limiter is a fairness guard, failing closed is the worse outcome: `apiRateLimiter`
+ * is mounted on the entire authenticated surface, so rejecting on a store error turns a cache
+ * blip into a total product outage while the database is healthy. Those pass the request
+ * through instead, which is a documented, bounded loss of throttling rather than an outage.
  */
 
 const store = (prefix: string): RedisStore =>
@@ -53,6 +72,8 @@ export const loginRateLimiter = rateLimit({
   skipSuccessfulRequests: true,
   keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? '')}`,
   store: store('login'),
+  // The brute-force control on this route. Fails closed on a store error; see the header.
+  passOnStoreError: false,
   handler: jsonHandler('Too many sign-in attempts. Try again shortly.'),
 })
 
@@ -68,6 +89,8 @@ export const registerRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? '')}`,
   store: store('register'),
+  // The brute-force control on this route. Fails closed on a store error; see the header.
+  passOnStoreError: false,
   handler: jsonHandler('Too many accounts created from this address.'),
 })
 
@@ -78,6 +101,8 @@ export const refreshRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? '')}`,
   store: store('refresh'),
+  // The brute-force control on this route. Fails closed on a store error; see the header.
+  passOnStoreError: false,
   handler: jsonHandler('Too many token refresh attempts.'),
 })
 
@@ -89,6 +114,9 @@ export const aiRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   store: store('ai'),
+  // A spend control. Fails closed on a store error rather than leaving a paid model
+  // unmetered; see the header.
+  passOnStoreError: false,
   handler: jsonHandler('AI request limit reached for this hour.'),
 })
 
@@ -100,6 +128,9 @@ export const publicRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `ip:${ipKeyGenerator(req.ip ?? '')}`,
   store: store('public'),
+  // A fairness guard, not a security control. Passes the request through on a store error
+  // rather than turning a cache blip into an outage; see the header.
+  passOnStoreError: true,
   handler: jsonHandler('Too many requests to the public demo.'),
 })
 
@@ -111,6 +142,9 @@ export const replayRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   store: store('replay'),
+  // A write amplifier: each request resets delivery rows and enqueues a job. Fails closed on
+  // a store error; see the header.
+  passOnStoreError: false,
   handler: jsonHandler('Too many replay requests.'),
 })
 
@@ -122,5 +156,8 @@ export const apiRateLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: userOrIpKey,
   store: store('api'),
+  // A fairness guard, not a security control. Passes the request through on a store error
+  // rather than turning a cache blip into an outage; see the header.
+  passOnStoreError: true,
   handler: jsonHandler('Too many requests.'),
 })
