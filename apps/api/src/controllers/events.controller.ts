@@ -4,7 +4,8 @@ import { Event } from '../entities/Event'
 import { Endpoint } from '../entities/Endpoint'
 import { Delivery } from '../entities/Delivery'
 import { AuthRequest } from '../middleware/auth'
-import { deliveryQueue } from '../queue'
+import { getBoss } from '../queue'
+import { publishDelivery } from '../queue/contract'
 import { validatedQuery } from '../middleware/validate'
 import type { EventQuery } from '../validation/schemas'
 
@@ -150,29 +151,68 @@ export const replayEvent = async (
      * delivery rows for this event are reset to `pending` and their `delivered_at`
      * cleared. Without this the processor's idempotency check short-circuits and
      * the replay silently does nothing (H-08).
+     *
+     * `response_code` and `response_body` are cleared with them (B-5). They were left
+     * behind, so a row sitting in `pending` still carried the previous attempt's status and
+     * body — the dashboard showed a delivery that had not happened yet alongside the 200 it
+     * got last time, and if the replay never completed that stale pair was the only thing
+     * ever shown for it. Attempt metadata and attempt results have to be reset together or
+     * the row describes two different attempts at once.
+     *
+     * The new delivery job is published **inside this transaction**, which is the same
+     * invariant ingestion now holds (B-1): either the reset and the job both commit, or
+     * neither does. Enqueuing after the commit would mean a crash in between left every
+     * delivery row for this event reset to `pending` with nothing queued to act on them —
+     * strictly worse than not replaying at all, because it also destroys the record of the
+     * delivery that did succeed. Replay uses the same publish path as ingestion rather than
+     * a second mechanism of its own.
      */
-    await AppDataSource.transaction(async (manager) => {
+    const jobId = await AppDataSource.transaction(async (manager) => {
       await manager
         .getRepository(Delivery)
         .createQueryBuilder()
         .update(Delivery)
-        .set({ status: 'pending', delivered_at: null, attempt_count: 0 })
+        .set({
+          status: 'pending',
+          delivered_at: null,
+          attempt_count: 0,
+          response_code: null,
+          response_body: null,
+        })
         .where('event_id = :eventId', { eventId: event.id })
         .execute()
 
       await manager.getRepository(Event).update(event.id, { status: 'received' })
+
+      const id = await publishDelivery(getBoss(), manager, {
+        eventId: event.id,
+        endpointId: endpoint.id,
+        replay: true,
+      })
+
+      /**
+       * `send` returns null when a queue policy discards the job as a duplicate. The
+       * `delivery` queue is `standard` and this call sets no singleton or throttle key, so
+       * that cannot happen here — but if it ever did, the reset above must not be allowed to
+       * stand on its own. Throwing rolls it back and answers 500 rather than leaving the
+       * event's deliveries reset with nothing queued.
+       */
+      if (!id) {
+        throw new Error(`Replay of event ${event.id} produced no delivery job`)
+      }
+
+      return id
     })
 
-    const job = await deliveryQueue.add(
-      'deliver',
-      { eventId: event.id, endpointId: endpoint.id, replay: true },
-      {
-        attempts: 4,
-        backoff: { type: 'exponential', delay: 5000 },
-      }
-    )
-
-    res.json({ ok: true, jobId: job.id })
+    /**
+     * Two replays in quick succession produce two jobs, and that is deliberate. They cannot
+     * run at the same time — jobs carry `group: { id: eventId }` and the worker runs one job
+     * per group cluster-wide — so the second runs after the first and finds every delivery
+     * row already terminal, which the processor skips. Rejecting the second request instead
+     * would have to guess whether the first is still in flight; letting an idempotent
+     * processor absorb it does not.
+     */
+    res.json({ ok: true, jobId })
   } catch (error) {
     console.error('Replay event error:', error)
     res.status(500).json({ error: 'Internal server error' })
