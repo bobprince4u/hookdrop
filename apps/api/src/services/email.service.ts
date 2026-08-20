@@ -1,6 +1,8 @@
 import { Resend } from 'resend'
 import { env, adminEmails } from '../config/env'
 import { escapeHtml, safeUrl } from './html.util'
+import { getBoss } from '../queue'
+import { publishEmail, type EmailTemplate } from '../queue/contract'
 
 /**
  * Transactional email.
@@ -176,23 +178,57 @@ export const sendPlanLimitWarningEmail = async (
   })
 }
 
+/**
+ * Schedules the two onboarding emails, 24 and 72 hours out.
+ *
+ * BullMQ distinguished them by *job name* on a shared `email` queue with a `delay` in
+ * milliseconds. pg-boss has no job name — the queue is the name — so the template moved into
+ * the payload, and `startAfter` is in **seconds**. The consumer dispatches on
+ * `EmailJob.template`; both halves of that contract live in `queue/contract.ts`, which is
+ * byte-identical in the API and the worker, so the two cannot drift apart on the spelling of
+ * a template.
+ *
+ * No transaction, deliberately. Registration has already committed by the time this is
+ * called and the sequence is explicitly fire-and-forget: a delayed onboarding email is not
+ * delivery work anyone is owed, and coupling it to the registration transaction would mean a
+ * queue problem could fail an account sign-up. That is the opposite trade from ingestion,
+ * where the event is a customer's webhook and losing it is unacceptable.
+ *
+ * Errors are caught here rather than left to the caller. `auth.controller.ts` calls this as
+ * `void sendWelcomeSequence(...)`, which discards the promise — so a rejection was an
+ * unhandled rejection, and under Node's default that terminates the API process. A Redis
+ * outage could already do it through `emailQueue.add`; a queue that is unreachable or has not
+ * been registered can too. Swallowing and logging is the contract every other function in
+ * this module already follows.
+ */
 export const sendWelcomeSequence = async (
   email: string,
   name: string
 ): Promise<void> => {
-  const { emailQueue } = await import('../queue')
+  const schedule: readonly { template: EmailTemplate; afterSeconds: number }[] =
+    [
+      { template: 'day1-tips', afterSeconds: 24 * 60 * 60 },
+      { template: 'day3-upgrade', afterSeconds: 3 * 24 * 60 * 60 },
+    ]
 
-  await emailQueue.add(
-    'day1-tips',
-    { email, name },
-    { delay: 24 * 60 * 60 * 1000 }
-  )
-
-  await emailQueue.add(
-    'day3-upgrade',
-    { email, name },
-    { delay: 3 * 24 * 60 * 60 * 1000 }
-  )
+  for (const { template, afterSeconds } of schedule) {
+    try {
+      await publishEmail(
+        getBoss(),
+        { template, email, name },
+        { startAfterSeconds: afterSeconds }
+      )
+    } catch (error) {
+      /**
+       * Per-template, so a failure on the first does not silently cancel the second — and
+       * the address is not logged (H-48).
+       */
+      console.error(
+        `Failed to schedule ${template} email:`,
+        error instanceof Error ? error.message : 'unknown error'
+      )
+    }
+  }
 }
 
 export const sendDay1TipsEmail = async (
