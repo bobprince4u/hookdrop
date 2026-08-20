@@ -1,4 +1,3 @@
-import cron, { ScheduledTask } from 'node-cron'
 import { LessThan, Not } from 'typeorm'
 import { AppDataSource } from '../db'
 import { User } from '../entities/User'
@@ -23,7 +22,8 @@ import {
  *
  * 2. **The hourly demo cleanup ran at module import.** `cron.schedule(...)` sat at the
  *    bottom of the file at top level, so importing this module for any reason registered a
- *    recurring `DELETE`. Both tasks are now registered by `startSubscriptionScheduler`.
+ *    recurring `DELETE`. There is no `cron.schedule` call left to be careless with — see
+ *    the note on scheduling below.
  *
  * 3. **`plan_expires_at: undefined` never cleared the column.** TypeORM omits `undefined`
  *    properties from the generated `UPDATE`, so downgraded users kept a stale past expiry
@@ -34,6 +34,12 @@ import {
  *    written without throwing. `migrations/1787011380000_add-users-reminder-tracking.js` adds
  *    it, and `sendRemindersForDay` now claims it per user — see the comment there for why one
  *    timestamp is enough to distinguish the 7-day reminder from the 3-day one.
+ *
+ * Defect 2 no longer has a `cron.schedule` call to be careless with: this module is only the
+ * *body* of two jobs now, and `queue/handlers.ts` registers both schedules with pg-boss.
+ * Importing this file has no side effects at all, which is a stronger version of the same
+ * fix — and the schedules are cluster-wide, so the hourly `DELETE` runs once per tick rather
+ * than once per replica.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -41,7 +47,14 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /** Reminders are sent this many days before expiry. */
 const REMINDER_DAYS = [7, 3] as const
 
-let tasks: ScheduledTask[] = []
+/**
+ * Daily, at 09:00 in `SCHEDULER_TIMEZONE`. The timezone is explicit so "9am" is one
+ * specific instant rather than whatever the host's clock happens to be set to.
+ */
+export const SUBSCRIPTION_EXPIRY_CRON = '0 9 * * *'
+
+/** Hourly. `RETENTION_CRON` is deliberately offset from this — see that constant. */
+export const DEMO_CLEANUP_CRON = '0 * * * *'
 
 /**
  * The UTC day containing `instant`.
@@ -234,40 +247,4 @@ export const cleanupDemoEvents = async (): Promise<void> => {
       error instanceof Error ? error.message : 'unknown error'
     )
   }
-}
-
-/**
- * Registers both recurring tasks. Called from the service entrypoint, never at import.
- *
- * `timezone` is set explicitly so "9am" is one specific instant rather than whatever the
- * host's clock happens to be configured for.
- */
-export const startSubscriptionScheduler = (): void => {
-  if (tasks.length > 0) return
-
-  tasks = [
-    cron.schedule(
-      '0 9 * * *',
-      () => {
-        console.log('Running subscription expiry check')
-        void checkExpiringSubscriptions()
-      },
-      { timezone: env.SCHEDULER_TIMEZONE }
-    ),
-    cron.schedule('0 * * * *', () => void cleanupDemoEvents(), {
-      timezone: env.SCHEDULER_TIMEZONE,
-    }),
-  ]
-
-  console.log(
-    `Subscription scheduler started (timezone ${env.SCHEDULER_TIMEZONE})`
-  )
-}
-
-/** Stops both tasks so shutdown is not racing a run that has just begun. */
-export const stopSubscriptionScheduler = (): void => {
-  for (const task of tasks) {
-    void task.stop()
-  }
-  tasks = []
 }
