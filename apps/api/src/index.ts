@@ -10,12 +10,25 @@ import cookieParser from 'cookie-parser'
 import { env, isProduction } from './config/env'
 import { initDB } from './db'
 import router from './routes'
-import { redis, closeQueues } from './queue'
+import { createRedisConnection, closeRedis } from './redis'
+import { startQueue, closeQueue } from './queue'
 import { verifyAccessToken } from './services/token.service'
 import { apiRateLimiter } from './middleware/rateLimiter'
 import { AppDataSource } from './db'
 import { Endpoint } from './entities/Endpoint'
 import { handleWebhook } from './controllers/billing.controller'
+
+/**
+ * The adapter's own pair of connections.
+ *
+ * This was `createAdapter(redis, redis.duplicate())`, which reused the shared command
+ * connection as the publisher and created an anonymous duplicate as the subscriber. The
+ * duplicate had no error listener and no reference anywhere, so it could neither be diagnosed
+ * nor closed: two ioredis handles stayed open through shutdown and kept the event loop alive
+ * until the platform's kill timeout. A named pair is closable and reports its own errors.
+ */
+const socketPub = createRedisConnection('socket-pub')
+const socketSub = createRedisConnection('socket-sub')
 
 /**
  * Config is validated at import time by `./config/env`, which exits the process if
@@ -80,7 +93,7 @@ export const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
-  adapter: createAdapter(redis, redis.duplicate()),
+  adapter: createAdapter(socketPub, socketSub),
   // Engine.IO's default is 1MB; events are relayed, not uploaded.
   maxHttpBufferSize: 1e6,
 })
@@ -320,13 +333,30 @@ io.on('connection', (socket) => {
   })
 })
 
+/**
+ * Graceful shutdown.
+ *
+ * The order matters: stop accepting connections first, then release the things a request
+ * still finishing might need, and the database last. A replay in flight during the drain is
+ * inside a transaction that writes delivery rows *and* its queue job, so closing the database
+ * under it would roll back work the caller is about to be told succeeded.
+ *
+ * The Socket.IO adapter's connections are closed explicitly. `io.close()` shuts the server
+ * down but knows nothing about the Redis clients the adapter was built with, and they were
+ * previously left open — which is why the process needed the platform's kill timeout to exit.
+ */
 const shutdown = async (signal: string): Promise<void> => {
   console.log(`Received ${signal}, shutting down`)
   io.close()
   httpServer.close()
-  await closeQueues().catch((error) =>
-    console.error('Error closing queues:', error)
+  await Promise.allSettled([socketPub.quit(), socketSub.quit()])
+  await closeQueue().catch((error: unknown) =>
+    console.error(
+      'Error closing queue:',
+      error instanceof Error ? error.message : 'unknown error'
+    )
   )
+  await closeRedis()
   if (AppDataSource.isInitialized) {
     await AppDataSource.destroy().catch((error) =>
       console.error('Error closing database:', error)
@@ -335,8 +365,16 @@ const shutdown = async (signal: string): Promise<void> => {
   process.exit(0)
 }
 
+/**
+ * Nothing starts listening until the database and the queue are both ready.
+ *
+ * `startQueue` verifies that the pg-boss schema is installed and that the `delivery` and
+ * `email` queues exist, and throws if not — so a replica that cannot queue a replay or an
+ * onboarding email refuses to boot rather than failing those requests one at a time.
+ */
 const start = async (): Promise<void> => {
   await initDB()
+  await startQueue()
   httpServer.listen(env.PORT, () => {
     console.log(
       `API service running on port ${env.PORT} (${env.NODE_ENV}, ${allowedOrigins.size} allowed origins)`
