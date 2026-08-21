@@ -1,5 +1,6 @@
 import './env'
 
+import type { JobWithMetadata } from 'pg-boss'
 import { all, count, one } from './database'
 import { startQueue, stopQueue } from '../../apps/worker/src/queue'
 import { PGBOSS_SCHEMA, QUEUES } from '../../apps/worker/src/queue/contract'
@@ -143,5 +144,67 @@ export const registrationOf = async (
       where name = $1`,
     [queue]
   )
+
+/**
+ * Turns a job row into the object a handler is called with.
+ *
+ * A processor suite has to invoke `processDelivery(job)` directly — running it through
+ * `boss.work` would mean polling, waiting and racing a background fetch loop for every
+ * assertion — so the job argument has to come from somewhere. It comes from here rather
+ * than from a literal, because the fields the processor actually reads are the ones pg-boss
+ * writes: the id it logs, the payload it trusts, and `retryCount`/`retryLimit`, which decide
+ * whether a run is the last one and therefore whether stranded delivery rows get resolved.
+ * Publishing through the real `publishDelivery` and adapting the row it produced keeps all
+ * of those honest; a hand-written literal would let the payload shape drift from what the
+ * producer sends and nothing would notice.
+ *
+ * `overrides` exists for `retryCount`, which is the one field a test legitimately needs to
+ * set: reaching the queue's retry backstop for real would take ten runs and the better part
+ * of an hour of backoff.
+ *
+ * Every other field is an inert placeholder. `JobWithMetadata` requires them and no handler
+ * in this repository reads one, so they carry whatever the row can supply and nothing else —
+ * a test that came to depend on any of them would be asserting against this function rather
+ * than against pg-boss.
+ */
+export const asHandlerJob = <T>(
+  row: JobRow<T>,
+  overrides: { retryCount?: number; retryLimit?: number } = {}
+): JobWithMetadata<T> => ({
+  id: row.id,
+  name: row.name,
+  data: row.data,
+  state: row.state,
+  retryCount: overrides.retryCount ?? row.retry_count,
+  retryLimit: overrides.retryLimit ?? row.retry_limit,
+  groupId: row.group_id,
+  policy: row.policy ?? 'standard',
+  startAfter: row.start_after,
+  startedOn: row.started_on ?? row.start_after,
+  completedOn: row.completed_on,
+  createdOn: row.start_after,
+  keepUntil: row.start_after,
+  output: (row.output ?? {}) as object,
+  // --- placeholders; see above ---
+  signal: new AbortController().signal,
+  priority: 0,
+  retryDelay: 0,
+  retryBackoff: false,
+  singletonKey: null,
+  singletonOn: null,
+  expireInSeconds: 0,
+  deleteAfterSeconds: 0,
+  heartbeatOn: null,
+  heartbeatSeconds: null,
+  groupTier: null,
+  blocked: false,
+  blocking: false,
+  pendingDependencies: 0,
+  deadLetter: '',
+  sourceName: null,
+  sourceId: null,
+  sourceCreatedOn: null,
+  sourceRetryCount: null,
+})
 
 export { QUEUES }
