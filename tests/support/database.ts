@@ -183,6 +183,20 @@ const queueSchemaPresent = async (): Promise<boolean> => {
   return Boolean(row?.present)
 }
 
+/**
+ * The per-test reset: an empty queue and empty application tables.
+ *
+ * This is why `npm test` passes `--test-concurrency=1`. `node --test` runs test *files* in
+ * parallel processes by default, and there is one test database — so a `truncate` in one
+ * file's `beforeEach` deletes the fixtures another file is midway through asserting on. The
+ * symptom is a scatter of unrelated failures that differ every run and disappear when either
+ * file is run on its own, which is a bad afternoon to have twice.
+ *
+ * Serial files rather than a schema or database per file: each suite already opens a pg-boss
+ * instance that installs and migrates its own schema, and giving every file a private copy of
+ * that would cost more per run than the whole suite currently takes. Tests *within* a file
+ * still run in order, which `node:test` does by default for synchronously-registered tests.
+ */
 export const reset = async (): Promise<void> => {
   await resetQueue()
   await resetTables()
