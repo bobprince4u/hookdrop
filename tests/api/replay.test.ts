@@ -4,8 +4,15 @@
  * This project's `include` is `tests/**\/*`, and app sources arrive only through the import
  * graph, so the augmentation has to be named. Without it `middleware/validate.ts` fails to
  * compile here while compiling perfectly well in its own workspace.
+ *
+ * A type-only import rather than a `/// <reference path>`: the declaration file is a module —
+ * it imports `Request` and re-exports the type — so importing it puts it in the program and its
+ * `declare global` block applies, while the import itself is erased rather than becoming a
+ * `require` of a file with no implementation. `@typescript-eslint/triple-slash-reference` asks
+ * for this form, and it is load-bearing either way: delete the line and the three
+ * `req.validatedQuery` uses in `middleware/validate.ts` stop compiling.
  */
-/// <reference path="../../apps/api/src/types/express/index.d.ts" />
+import type {} from '../../apps/api/src/types/express'
 
 import '../support/env'
 
