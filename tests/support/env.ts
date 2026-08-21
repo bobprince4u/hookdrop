@@ -103,3 +103,24 @@ provide('EMAIL_FROM', 'Hookdrop Tests <tests@example.invalid>')
 provide('SCHEDULER_TIMEZONE', 'UTC')
 provide('DEMO_ENDPOINT_ID', '00000000-0000-0000-0000-000000000002')
 provide('DEMO_RETENTION_HOURS', '1')
+
+/**
+ * Retention bounds, small enough that a test can reach the per-run cap.
+ *
+ * The production defaults are 5 000 rows per batch and 20 batches, which caps one hourly run
+ * at 100 000 events per plan tier. That bound is one of the two things standing between a
+ * misconfigured retention window and a customer's history, so the suite has to prove the sweep
+ * actually stops there and says so — and proving it against the real defaults would mean
+ * inserting a hundred thousand events per assertion. 100 × 2 is the same arithmetic at a size
+ * a test can afford; 100 is the schema's own minimum for a batch.
+ *
+ * `provide`, not `force`, so a run investigating batching behaviour can raise them from the
+ * shell. Every test that depends on the cap reads it back from `env` rather than assuming
+ * these numbers.
+ *
+ * `RETENTION_ENABLED` is deliberately left at its default of true. The flag is read once, when
+ * the worker's `config/env.ts` is imported, so a suite cannot exercise both branches — the
+ * disabled half is a separate file that sets it before any application module loads.
+ */
+provide('RETENTION_BATCH_SIZE', '100')
+provide('RETENTION_MAX_BATCHES_PER_RUN', '2')
