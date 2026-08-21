@@ -13,7 +13,7 @@ Hookdrop is an AI-native webhook relay and inspector for developers. It captures
 ## What it does
 
 - **Permanent capture URL** — one URL that never changes or goes down. Every webhook is logged in full: headers, body, timestamp, source IP.
-- **Auto-retry forwarding** — forward to localhost, staging, or production simultaneously. Automatic retries with exponential backoff: 5s → 30s → 2m → 10m → dead letter queue.
+- **Auto-retry forwarding** — forward to localhost, staging, or production simultaneously. Four attempts per destination, spaced by jittered exponential backoff (5–10s, 10–20s, 20–40s), then dead letter.
 - **One-click replay** — replay any past event against any destination instantly. No more asking Stripe to resend.
 - **Live event stream** — watch webhooks arrive in real time on your dashboard via WebSocket. No refreshing needed.
 - **AI payload explanation** — AI reads every payload and explains what happened in plain English.
@@ -28,10 +28,12 @@ Hookdrop is an AI-native webhook relay and inspector for developers. It captures
 | Layer            | Technology                                   |
 | ---------------- | -------------------------------------------- |
 | Ingestion API    | Node.js, TypeScript, Express                 |
-| Delivery worker  | BullMQ, Redis                                |
+| Delivery worker  | Node.js, TypeScript, pg-boss                 |
 | Dashboard API    | Node.js, TypeScript, Express, JWT            |
 | Database         | PostgreSQL 16, TypeORM                       |
-| Queue            | Redis, BullMQ                                |
+| Queue            | pg-boss (PostgreSQL `pgboss` schema)         |
+| Live event feed  | Socket.IO with the Redis adapter             |
+| Rate limiting    | express-rate-limit with a Redis store        |
 | Frontend         | Next.js 16, Tailwind CSS, Zustand, Socket.io |
 | AI               | Google Gemini (`gemini-3-flash-preview`)     |
 | Email            | Resend                                       |
@@ -41,6 +43,16 @@ Hookdrop is an AI-native webhook relay and inspector for developers. It captures
 | Database hosting | Neon (PostgreSQL)                            |
 | Redis hosting    | Upstash                                      |
 | Documentation    | Mintlify                                     |
+
+The queue lives in Postgres so that accepting an event and creating its delivery job are one
+transaction. Under BullMQ the ingest path was `INSERT event → COMMIT → queue.add()`, and a crash
+in that gap left a committed event with nothing to deliver it — invisible, because the event
+showed as `received` and simply stayed there. Delivery is still **at-least-once**; see
+[docs/hardening.md](docs/hardening.md).
+
+Redis is still required by the ingestion and dashboard APIs, for the Socket.IO adapter, the
+distributed rate limiters and the monthly quota cache. The delivery worker holds no Redis
+connection at all.
 
 ---
 
@@ -52,22 +64,25 @@ Internet
     ▼
 Ingestion API (port 3002)          ← captures webhooks in <50ms
     │
-    ├── PostgreSQL (saves event)
-    ├── Redis/BullMQ (enqueues job)
-    └── Socket.io (emits to dashboard)
+    ├── PostgreSQL — one transaction:
+    │     ├── saves the event
+    │     └── inserts the delivery job into pgboss.job
+    └── Socket.io — emits to the dashboard (via the Redis adapter)
 
-Delivery Worker
+Delivery Worker                    ← the only queue consumer
     │
     ├── Fetches event + destinations from Postgres
-    ├── Forwards to each destination URL (10s timeout)
-    ├── Retries: 5s → 30s → 2m → 10m → DLQ
-    └── Logs every attempt to deliveries table
+    ├── Forwards to each destination URL, sequentially (10s timeout)
+    ├── 4 attempts per destination, counted on the deliveries row → dead_letter
+    ├── Logs every attempt to the deliveries table
+    └── Runs three cron schedules: retention, subscription expiry, demo cleanup
 
 Dashboard API (port 3003)
     │
     ├── JWT authentication
     ├── CRUD: endpoints, events, destinations
     ├── AI routes: explain, schema, handler, diagnose
+    ├── Replay: resets delivery rows and enqueues, in one transaction
     └── Billing: Paystack + Flutterwave webhooks
 
 Frontend (port 3004)
@@ -79,9 +94,18 @@ Frontend (port 3004)
     └── Billing page
 ```
 
+Both APIs publish jobs; neither consumes them, and neither is allowed to create the queue schema
+(`migrate: false`, `createSchema: false`). **Deploy the worker first** on a fresh database — it
+installs the `pgboss` schema and registers the queues, and a producer started before it exists
+fails on boot rather than creating tables nobody agreed to.
+
 ---
 
 ## Database schema
+
+Two schemas, with two different owners.
+
+`public` holds the application tables and is migrated by `node-pg-migrate` (`npm run migrate:up`):
 
 | Table          | Purpose                                   |
 | -------------- | ----------------------------------------- |
@@ -91,6 +115,10 @@ Frontend (port 3004)
 | `destinations` | Forwarding targets per endpoint           |
 | `deliveries`   | Every delivery attempt with response logs |
 | `ai_insights`  | Cached AI analysis per event              |
+
+`pgboss` holds the queue and is owned entirely by pg-boss, which installs and migrates it when
+the worker boots. Nothing in `migrations/` touches it and nothing should: `synchronize` is
+`false` in all three services, so TypeORM never sees those tables.
 
 ---
 
@@ -111,7 +139,7 @@ Frontend (port 3004)
 
 - Node.js v20+
 - PostgreSQL 16+
-- Redis 7+
+- Redis 7+ (for the live event feed, the rate limiters and the quota cache — not the queue)
 
 ### Clone and install
 
