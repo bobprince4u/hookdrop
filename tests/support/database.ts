@@ -406,6 +406,70 @@ export const createScenario = async (
 }
 
 /**
+ * Readers.
+ *
+ * Delivery rows and event status are what almost every assertion in these suites is
+ * ultimately about — a delivery either advanced or it did not — and both the worker's
+ * processor suite and the API's replay suite ask the same questions of them. They live here
+ * rather than in either suite so the two cannot drift into reading the same row differently,
+ * which is the shape of mistake `npm run check:duplicates` exists to catch elsewhere.
+ *
+ * They throw on a missing row instead of returning `undefined`. Every caller has already
+ * established that the row should exist, and a missing one is a failure of the thing under
+ * test, so the message says which row rather than letting an assertion fail later on
+ * `undefined`.
+ */
+export interface DeliveryRow {
+  id: string
+  status: string
+  attempt_count: number
+  response_code: number | null
+  response_body: string | null
+  delivered_at: Date | null
+  last_attempted_at: Date | null
+}
+
+const DELIVERY_COLUMNS = `id, status, attempt_count, response_code, response_body,
+                          delivered_at, last_attempted_at`
+
+export const deliveryRow = async (
+  eventId: string,
+  destinationId: string
+): Promise<DeliveryRow> => {
+  const row = await one<DeliveryRow>(
+    `select ${DELIVERY_COLUMNS}
+       from deliveries
+      where event_id = $1 and destination_id = $2`,
+    [eventId, destinationId]
+  )
+  if (!row) {
+    throw new Error(
+      `no delivery row for event ${eventId} / destination ${destinationId}`
+    )
+  }
+  return row
+}
+
+/** Every delivery row for an event, ordered so an index is stable across runs. */
+export const deliveriesFor = async (eventId: string): Promise<DeliveryRow[]> =>
+  all<DeliveryRow>(
+    `select ${DELIVERY_COLUMNS}
+       from deliveries
+      where event_id = $1
+      order by destination_id asc`,
+    [eventId]
+  )
+
+export const eventStatus = async (eventId: string): Promise<string> => {
+  const row = await one<{ status: string }>(
+    `select status from events where id = $1`,
+    [eventId]
+  )
+  if (!row) throw new Error(`no event row for ${eventId}`)
+  return row.status
+}
+
+/**
  * Runs `work` inside a transaction on a dedicated connection and then rolls it back, so a
  * suite can observe what a statement holds a lock on — or prove that concurrent work
  * skipped a locked row — without leaving anything behind.

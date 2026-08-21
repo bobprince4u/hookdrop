@@ -18,7 +18,8 @@ import {
   createDelivery,
   createScenario,
   db,
-  one,
+  deliveryRow,
+  eventStatus,
   reset,
 } from '../support/database'
 import {
@@ -146,40 +147,6 @@ const captureConsole = (t: TestContext): (() => string) => {
   t.mock.method(console, 'warn', sink)
   t.mock.method(console, 'error', sink)
   return () => lines.join('\n')
-}
-
-interface DeliveryRow {
-  id: string
-  status: string
-  attempt_count: number
-  response_code: number | null
-  response_body: string | null
-  delivered_at: Date | null
-  last_attempted_at: Date | null
-}
-
-const deliveryRow = async (
-  eventId: string,
-  destinationId: string
-): Promise<DeliveryRow> => {
-  const row = await one<DeliveryRow>(
-    `select id, status, attempt_count, response_code, response_body,
-            delivered_at, last_attempted_at
-       from deliveries
-      where event_id = $1 and destination_id = $2`,
-    [eventId, destinationId]
-  )
-  assert.ok(row, `no delivery row for destination ${destinationId}`)
-  return row
-}
-
-const eventStatus = async (eventId: string): Promise<string> => {
-  const row = await one<{ status: string }>(
-    `select status from events where id = $1`,
-    [eventId]
-  )
-  assert.ok(row, `no event row for ${eventId}`)
-  return row.status
 }
 
 /** Publishes through the production path and returns the job a handler would receive. */
