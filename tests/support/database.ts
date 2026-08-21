@@ -1,7 +1,6 @@
 import './env'
 
 import { Pool } from 'pg'
-import type { PoolClient } from 'pg'
 
 /**
  * Fixtures and assertions for the test database, over a raw `pg` pool.
@@ -63,10 +62,10 @@ export const db = (): Pool => {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       /**
-       * Four, not the two the services are configured with. `withRolledBackTransaction`
-       * holds one connection open for the length of a lock-contention test while the
-       * assertions run on another, and a pool that can only just accommodate that turns a
-       * mistake in a test into a hang on connection acquisition rather than a failure.
+       * Four, not the two the services are configured with. `holdEventLock` keeps one
+       * connection open for the length of a lock-contention test while the assertions run on
+       * another, and a pool that can only just accommodate that turns a mistake in a test into
+       * a hang on connection acquisition rather than a failure.
        */
       max: 4,
       connectionTimeoutMillis: 5_000,
@@ -470,19 +469,52 @@ export const eventStatus = async (eventId: string): Promise<string> => {
 }
 
 /**
- * Runs `work` inside a transaction on a dedicated connection and then rolls it back, so a
- * suite can observe what a statement holds a lock on — or prove that concurrent work
- * skipped a locked row — without leaving anything behind.
+ * Holds a row lock on one event until the caller lets go.
+ *
+ * This exists for the retention sweep's `FOR UPDATE OF e SKIP LOCKED`, and the shape is
+ * dictated by how that clause fails. The obvious test — hold a lock for the whole of a sweep,
+ * check the row survived — does detect its removal, but not as a failure: without `SKIP LOCKED`
+ * the statement does not error, it *waits*. `node:test` marks the test timed out and then cannot
+ * end the process, because the blocked query is holding a connection and keeping the event loop
+ * alive. The run hangs having reported nothing, which is the outcome the timeout was supposed to
+ * prevent.
+ *
+ * So the caller races the sweep against a patience window and releases the lock either way. A
+ * sweep that steps over the row returns long before the window; one that waits loses the race,
+ * fails on that assertion, and then finishes harmlessly once `release` runs.
+ *
+ * The transaction is rolled back rather than committed — it only ever took a lock — and the
+ * connection is returned to the pool, so `release` is safe to call from a `finally`.
  */
-export const withRolledBackTransaction = async <T>(
-  work: (client: PoolClient) => Promise<T>
-): Promise<T> => {
+export interface HeldLock {
+  release(): Promise<void>
+}
+
+export const holdEventLock = async (eventId: string): Promise<HeldLock> => {
   const client = await db().connect()
-  try {
-    await client.query('begin')
-    return await work(client)
-  } finally {
+
+  const abandon = async (): Promise<void> => {
     await client.query('rollback').catch(() => undefined)
     client.release()
+  }
+
+  try {
+    await client.query('begin')
+    const held = await client.query(
+      `select id from events where id = $1 for update`,
+      [eventId]
+    )
+    if (held.rowCount !== 1) {
+      throw new Error(`no event ${eventId} to lock`)
+    }
+  } catch (error) {
+    await abandon()
+    throw error
+  }
+
+  let releasing: Promise<void> | null = null
+  return {
+    /** Idempotent: a test that releases explicitly and again in a `finally` is fine. */
+    release: () => (releasing ??= abandon()),
   }
 }

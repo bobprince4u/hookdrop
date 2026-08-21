@@ -146,6 +146,32 @@ export const registrationOf = async (
   )
 
 /**
+ * The cron registration pg-boss stored for a queue.
+ *
+ * The three recurring sweeps used to be `cron.schedule` calls inside the worker process, which
+ * meant "is it scheduled?" was answerable only by reading the source. They are rows now, so it
+ * is answerable by looking — and worth looking at, because `schedule` is an upsert and a
+ * mistyped cron expression or a dropped timezone is not something the worker would complain
+ * about at boot. It would simply sweep at the wrong time, or at the host clock's idea of 9am.
+ */
+export interface ScheduleRow {
+  name: string
+  cron: string
+  timezone: string
+  data: unknown
+}
+
+export const scheduleOf = async (
+  queue: QueueName
+): Promise<ScheduleRow | undefined> =>
+  one<ScheduleRow>(
+    `select name, cron, timezone, data
+       from ${PGBOSS_SCHEMA}.schedule
+      where name = $1`,
+    [queue]
+  )
+
+/**
  * Turns a job row into the object a handler is called with.
  *
  * A processor suite has to invoke `processDelivery(job)` directly — running it through
