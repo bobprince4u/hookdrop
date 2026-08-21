@@ -357,6 +357,8 @@ export interface ScenarioOptions {
   destinationUrl?: string
   destinationSecret?: string | null
   destinations?: number
+  /** The bytes the processor will forward and sign, for suites that assert on either. */
+  eventBody?: string
 }
 
 export interface Scenario {
@@ -384,7 +386,7 @@ export const createScenario = async (
     )
   }
 
-  const eventId = await createEvent({ endpointId })
+  const eventId = await createEvent({ endpointId, body: options.eventBody })
 
   return { userId, endpointId, destinationIds, eventId }
 }
