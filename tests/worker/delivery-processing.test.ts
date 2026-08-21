@@ -13,6 +13,7 @@ import type {
 } from 'axios'
 import type { JobWithMetadata } from 'pg-boss'
 
+import { captureConsole } from '../support/console'
 import {
   closeDatabase,
   createDelivery,
@@ -127,27 +128,6 @@ const stubHttpFailure = (t: TestContext, error: unknown) =>
 /** Header values are `AxiosHeaderValue`, and the assertions compare strings. */
 const headerOf = (config: AxiosRequestConfig, name: string): string =>
   String((config.headers as Record<string, unknown> | undefined)?.[name] ?? '')
-
-/**
- * Collects everything the processor logs during one test.
- *
- * The §23 test needs both directions: that the identifying fields are present, and that no
- * secret is. Both require the output rather than trusting the format string.
- */
-const captureConsole = (t: TestContext): (() => string) => {
-  const lines: string[] = []
-  const sink = (...args: unknown[]): void => {
-    lines.push(
-      args
-        .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg)))
-        .join(' ')
-    )
-  }
-  t.mock.method(console, 'log', sink)
-  t.mock.method(console, 'warn', sink)
-  t.mock.method(console, 'error', sink)
-  return () => lines.join('\n')
-}
 
 /** Publishes through the production path and returns the job a handler would receive. */
 const queueDelivery = async (scenario: {
